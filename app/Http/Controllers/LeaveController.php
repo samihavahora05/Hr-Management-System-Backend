@@ -175,8 +175,8 @@ class LeaveController extends Controller
         $approver = $request->user();
         $roleName = strtolower($approver->role->name ?? 'employee');
 
-        if (!in_array($roleName, ['admin', 'hr', 'manager'])) {
-            return response()->json(['message' => 'Unauthorized to approve leave requests'], 403);
+        if ($roleName !== 'admin') {
+            return response()->json(['message' => 'Unauthorized: Only Administrator can approve leave requests'], 403);
         }
 
         $leaveRequest = LeaveRequest::where('organization_id', $approver->organization_id)
@@ -186,16 +186,6 @@ class LeaveController extends Controller
 
         if (!$leaveRequest) {
             return response()->json(['message' => 'Leave request not found'], 404);
-        }
-
-        // Manager can only approve requests of direct reports
-        if ($roleName === 'manager' && $leaveRequest->user->manager_id !== $approver->id) {
-            return response()->json(['message' => 'Unauthorized: Managers can only approve leave for direct team members'], 403);
-        }
-
-        // Manager or HR cannot self-approve their own personal leave request
-        if ($leaveRequest->user_id === $approver->id) {
-            return response()->json(['message' => 'Unauthorized: You cannot approve your own leave request. It must be approved by another administrator or manager.'], 403);
         }
 
         if ($leaveRequest->status !== 'pending') {
@@ -281,8 +271,8 @@ class LeaveController extends Controller
         $approver = $request->user();
         $roleName = strtolower($approver->role->name ?? 'employee');
 
-        if (!in_array($roleName, ['admin', 'hr', 'manager'])) {
-            return response()->json(['message' => 'Unauthorized to reject leave requests'], 403);
+        if ($roleName !== 'admin') {
+            return response()->json(['message' => 'Unauthorized: Only Administrator can reject leave requests'], 403);
         }
 
         $leaveRequest = LeaveRequest::where('organization_id', $approver->organization_id)
@@ -292,11 +282,6 @@ class LeaveController extends Controller
 
         if (!$leaveRequest) {
             return response()->json(['message' => 'Leave request not found'], 404);
-        }
-
-        // Manager can only reject requests of direct reports
-        if ($roleName === 'manager' && $leaveRequest->user->manager_id !== $approver->id) {
-            return response()->json(['message' => 'Unauthorized: Managers can only reject leave for direct team members'], 403);
         }
 
         $leaveRequest->status = 'rejected';

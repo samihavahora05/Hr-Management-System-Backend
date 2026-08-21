@@ -69,8 +69,8 @@ class ExpenseController extends Controller
     public function approve(Request $request, $id)
     {
         $approver = $request->user();
-        if (!in_array($approver->getCanonicalRole(), ['admin', 'hr', 'manager', 'company_manager', 'team_leader'])) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($approver->getCanonicalRole() !== 'admin') {
+            return response()->json(['message' => 'Unauthorized: Only Administrator can approve expense claims'], 403);
         }
 
         $claim = ExpenseClaim::where('organization_id', $approver->organization_id)->where('id', $id)->with('user')->first();
@@ -86,7 +86,7 @@ class ExpenseController extends Controller
             $approver->organization_id,
             $claim->user_id,
             'Expense Claim Approved',
-            "Your expense claim of ₹{$claim->amount} has been approved by {$approver->name}.",
+            "Your expense claim of ₹{$claim->amount} has been approved by Administrator ({$approver->name}).",
             'success',
             '/expenses'
         );
@@ -95,7 +95,7 @@ class ExpenseController extends Controller
             NotificationService::notifyManagementChain(
                 $claim->user,
                 'Expense Claim Approved',
-                "{$claim->user->name}'s expense claim of ₹{$claim->amount} was approved by {$approver->name}.",
+                "{$claim->user->name}'s expense claim of ₹{$claim->amount} was approved by Administrator ({$approver->name}).",
                 'success',
                 '/expenses'
             );
@@ -107,8 +107,8 @@ class ExpenseController extends Controller
     public function reject(Request $request, $id)
     {
         $approver = $request->user();
-        if (!in_array($approver->getCanonicalRole(), ['admin', 'hr', 'manager', 'company_manager', 'team_leader'])) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($approver->getCanonicalRole() !== 'admin') {
+            return response()->json(['message' => 'Unauthorized: Only Administrator can reject expense claims'], 403);
         }
 
         $claim = ExpenseClaim::where('organization_id', $approver->organization_id)->where('id', $id)->with('user')->first();
