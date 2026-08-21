@@ -89,6 +89,7 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     // Attendance
     Route::post('/attendance/check-in', [AttendanceController::class, 'checkIn']);
     Route::post('/attendance/check-out', [AttendanceController::class, 'checkOut']);
+    Route::post('/attendance/auto-checkout', [AttendanceController::class, 'triggerAutoCheckout']);
     Route::get('/attendance/history', [AttendanceController::class, 'history']);
     Route::get('/attendance/summary', [AttendanceController::class, 'summary']);
     Route::post('/attendance/correction', [AttendanceController::class, 'adminCorrection']);

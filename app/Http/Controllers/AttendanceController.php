@@ -14,6 +14,9 @@ class AttendanceController extends Controller
     {
         $user = $request->user();
 
+        // Auto check-out any previous open attendance records
+        $this->processAutoCheckouts($user->organization_id, $user->id);
+
         $existing = Attendance::where('organization_id', $user->organization_id)
             ->where('user_id', $user->id)
             ->whereDate('date', Carbon::today())
@@ -123,6 +126,10 @@ class AttendanceController extends Controller
     public function history(Request $request)
     {
         $user = $request->user();
+
+        // Process any pending auto-checkouts before fetching history
+        $this->processAutoCheckouts($user->organization_id);
+
         $roleName = strtolower($user->role->name ?? 'employee');
         $targetUserId = (int) $request->query('user_id', $user->id);
 
@@ -210,6 +217,10 @@ class AttendanceController extends Controller
     public function summary(Request $request)
     {
         $user = $request->user();
+
+        // Process any pending auto-checkouts before computing summary
+        $this->processAutoCheckouts($user->organization_id);
+
         $roleName = strtolower($user->role->name ?? 'employee');
 
         if (in_array($roleName, ['admin', 'hr'])) {
@@ -426,5 +437,85 @@ class AttendanceController extends Controller
         }
 
         return "Late by {$hrStr} {$mins} mins (Shift Start: {$shiftStartFormatted})";
+    }
+
+    /**
+     * Public API endpoint to trigger automatic checkouts.
+     */
+    public function triggerAutoCheckout(Request $request)
+    {
+        $user = $request->user();
+        $count = $this->processAutoCheckouts($user->organization_id);
+
+        return response()->json([
+            'message' => "Auto check-out evaluated successfully. {$count} record(s) automatically checked out at scheduled shift end times.",
+            'updated_count' => $count,
+        ]);
+    }
+
+    /**
+     * Automatically clock out employees who have checked in but haven't clocked out
+     * once their assigned shift end time (or default organization shift end time) has passed.
+     */
+    public function processAutoCheckouts($organizationId = null, $userId = null)
+    {
+        $query = Attendance::with(['user.shift'])
+            ->whereNotNull('check_in')
+            ->whereNull('check_out');
+
+        if ($organizationId) {
+            $query->where('organization_id', $organizationId);
+        }
+
+        if ($userId) {
+            $query->where('user_id', $userId);
+        }
+
+        $openAttendances = $query->get();
+        $now = Carbon::now();
+        $updatedCount = 0;
+
+        foreach ($openAttendances as $att) {
+            $user = $att->user;
+            if (!$user) continue;
+
+            $shift = $user->shift;
+            $rawEndTime = $shift && $shift->end_time ? $shift->end_time : '18:00:00';
+            $rawStartTime = $shift && $shift->start_time ? $shift->start_time : '09:00:00';
+
+            $endTimeStr = strlen($rawEndTime) === 5 ? $rawEndTime . ':00' : $rawEndTime;
+            $startTimeStr = strlen($rawStartTime) === 5 ? $rawStartTime . ':00' : $rawStartTime;
+
+            $attDate = Carbon::parse($att->date)->toDateString();
+
+            try {
+                // If overnight shift (end time < start time)
+                if ($endTimeStr < $startTimeStr) {
+                    $shiftEndDt = Carbon::parse($attDate . ' ' . $endTimeStr)->addDay();
+                } else {
+                    $shiftEndDt = Carbon::parse($attDate . ' ' . $endTimeStr);
+                }
+            } catch (\Exception $e) {
+                $shiftEndDt = Carbon::parse($attDate . ' 18:00:00');
+            }
+
+            // If current time has reached or passed the shift end time
+            if ($now->greaterThanOrEqualTo($shiftEndDt)) {
+                $att->check_out = $endTimeStr;
+                $currentNotes = $att->notes ?? '';
+                $autoNote = 'Auto check-out at scheduled shift end time (' . substr($endTimeStr, 0, 5) . ')';
+
+                if (empty($currentNotes) || $currentNotes === 'On-time check-in') {
+                    $att->notes = $autoNote;
+                } elseif (!str_contains($currentNotes, 'Auto check-out') && !str_contains($currentNotes, 'Auto clocked out')) {
+                    $att->notes = $currentNotes . ' | ' . $autoNote;
+                }
+
+                $att->save();
+                $updatedCount++;
+            }
+        }
+
+        return $updatedCount;
     }
 }
