@@ -17,7 +17,34 @@ class LeaveController extends Controller
     public function getLeaveTypes(Request $request)
     {
         $user = $request->user();
-        $types = LeaveType::where('organization_id', $user->organization_id)->get();
+        $orgId = $user->organization_id ?? 1;
+
+        $types = LeaveType::where('organization_id', $orgId)->get();
+
+        if ($types->isEmpty()) {
+            $types = LeaveType::all();
+        }
+
+        if ($types->isEmpty()) {
+            $defaults = [
+                ['name' => 'Casual Leave (CL)', 'annual_quota' => 12, 'is_paid' => true],
+                ['name' => 'Sick Leave (SL)', 'annual_quota' => 10, 'is_paid' => true],
+                ['name' => 'Earned / Privilege Leave (PL)', 'annual_quota' => 15, 'is_paid' => true],
+                ['name' => 'Maternity / Paternity Leave', 'annual_quota' => 30, 'is_paid' => true],
+                ['name' => 'Compensatory Off (Comp-Off)', 'annual_quota' => 5, 'is_paid' => true],
+                ['name' => 'Unpaid Leave (LOP)', 'annual_quota' => 0, 'is_paid' => false],
+            ];
+            foreach ($defaults as $d) {
+                LeaveType::create([
+                    'organization_id' => $orgId,
+                    'name' => $d['name'],
+                    'annual_quota' => $d['annual_quota'],
+                    'is_paid' => $d['is_paid'],
+                ]);
+            }
+            $types = LeaveType::where('organization_id', $orgId)->get();
+        }
+
         return response()->json(['leave_types' => $types]);
     }
 
