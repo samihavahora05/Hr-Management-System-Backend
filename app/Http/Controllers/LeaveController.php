@@ -55,7 +55,7 @@ class LeaveController extends Controller
         $targetUserId = (int) $request->query('user_id', $user->id);
 
         if ($targetUserId !== $user->id) {
-            if ($roleName === 'employee') {
+            if ($roleName !== 'admin') {
                 return response()->json(['message' => 'Unauthorized: Cannot view leave balances of another employee'], 403);
             }
 
@@ -65,10 +65,6 @@ class LeaveController extends Controller
 
             if (!$targetUser) {
                 return response()->json(['message' => 'Target employee not found'], 404);
-            }
-
-            if ($roleName === 'manager' && $targetUser->manager_id !== $user->id) {
-                return response()->json(['message' => 'Unauthorized: Managers can only view leave balances for direct team members'], 403);
             }
         }
 
@@ -116,16 +112,11 @@ class LeaveController extends Controller
         $query = LeaveRequest::where('organization_id', $user->organization_id)
             ->with(['user', 'leaveType', 'approver']);
 
-        if ($roleName === 'employee') {
-            // Employees see only self
+        // Non-admin roles (HR, Manager, Team Leader, Employee) ONLY see their own personal leave requests
+        if ($roleName !== 'admin') {
             $query->where('user_id', $user->id);
-        } elseif ($roleName === 'manager') {
-            // Manager sees self + direct reports only
-            $directReportIds = $user->directReports()->pluck('id')->toArray();
-            $directReportIds[] = $user->id;
-            $query->whereIn('user_id', $directReportIds);
         }
-        // HR and Admin see all leave requests in the organization
+        // Only Admin can see organization-wide leave requests
 
         if ($request->has('status') && $request->status != '') {
             $query->where('status', $request->status);
