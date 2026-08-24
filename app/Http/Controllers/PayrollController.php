@@ -513,7 +513,9 @@ class PayrollController extends Controller
                     'bank_account_no' => $payroll->employee->bank_account_no ?? '50100234981290',
                 ],
                 'company' => [
-                    'name' => $org->name ?? 'BLUEBOXX DA PVT. LTD.',
+                    'name' => 'BLUEBOXX DA PVT. LTD.',
+                    'brand_title' => 'BLUEBOXX DA',
+                    'brand_subtitle' => 'PVT. LTD.',
                     'tagline' => $settings['tagline'] ?? 'LEARNING TODAY, LEADING TOMORROW',
                     'address' => $settings['address'] ?? 'SF-02, India Bulls Mega Mall, Akota Road, near Jetalpur Bridge, Vadodara, Gujarat 390022.',
                     'website' => $settings['website'] ?? 'https://blueboxx.in/',
