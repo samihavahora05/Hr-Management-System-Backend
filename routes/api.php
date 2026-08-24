@@ -23,6 +23,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AssistantController;
+use App\Http\Controllers\PayrollController;
 use App\Http\Middleware\TokenAuthMiddleware;
 use App\Models\Organization;
 use Illuminate\Http\Request;
@@ -135,6 +136,16 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::get('/loans', [LoanController::class, 'index']);
     Route::post('/loans', [LoanController::class, 'store']);
     Route::post('/loans/{id}/approve', [LoanController::class, 'approve'])->middleware('role:admin,hr');
+
+    // Payroll & Salary Slips (Admin-Exclusive management + Employee-Scoped view)
+    Route::get('/payroll', [PayrollController::class, 'index'])->middleware('role:admin');
+    Route::post('/payroll', [PayrollController::class, 'store'])->middleware('role:admin');
+    Route::post('/payroll/bulk-generate', [PayrollController::class, 'bulkGenerate'])->middleware('role:admin');
+    Route::get('/payroll/{id}', [PayrollController::class, 'show']);
+    Route::put('/payroll/{id}', [PayrollController::class, 'update'])->middleware('role:admin');
+    Route::post('/payroll/{id}/mark-paid', [PayrollController::class, 'markPaid'])->middleware('role:admin');
+    Route::get('/payroll/{id}/slip-data', [PayrollController::class, 'slipData']);
+    Route::get('/employee/payslips', [PayrollController::class, 'employeePayslips']);
 
     // Timesheets
     Route::get('/timesheets', [TimesheetController::class, 'index']);
