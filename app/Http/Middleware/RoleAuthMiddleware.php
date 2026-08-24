@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 class RoleAuthMiddleware
 {
     /**
-     * Handle an incoming request.
+     * Handle an incoming request and enforce server-side role-based access control.
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  \Closure  $next
@@ -23,9 +23,9 @@ class RoleAuthMiddleware
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
-        $userRole = strtolower($user->role->name ?? 'employee');
+        $userRole = $user->getCanonicalRole();
 
-        // Admin override: admins are permitted for all role routes
+        // Admin override: admins are permitted for all role-restricted routes
         if ($userRole === 'admin') {
             return $next($request);
         }

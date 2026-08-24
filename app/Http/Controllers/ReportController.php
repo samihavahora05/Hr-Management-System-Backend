@@ -178,4 +178,33 @@ class ReportController extends Controller
 
         return response()->json(['usage' => $usage]);
     }
+
+    public function recruitmentReport(Request $request)
+    {
+        $user = $request->user();
+        if (!in_array($user->getCanonicalRole(), ['admin', 'hr'])) {
+            return response()->json(['message' => 'Unauthorized: Only HR or Admin can view recruitment analytics'], 403);
+        }
+
+        $stages = ['applied', 'screening', 'interview_scheduled', 'interviewed', 'offered', 'joined', 'rejected'];
+        $funnel = [];
+        foreach ($stages as $stage) {
+            $count = \App\Models\Candidate::where('organization_id', $user->organization_id)
+                ->where('stage', $stage)
+                ->count();
+            $funnel[] = [
+                'stage' => $stage,
+                'count' => $count,
+            ];
+        }
+
+        $totalOpenings = \App\Models\JobOpening::where('organization_id', $user->organization_id)->count();
+        $activeOpenings = \App\Models\JobOpening::where('organization_id', $user->organization_id)->where('status', 'active')->count();
+
+        return response()->json([
+            'funnel' => $funnel,
+            'total_openings' => $totalOpenings,
+            'active_openings' => $activeOpenings,
+        ]);
+    }
 }

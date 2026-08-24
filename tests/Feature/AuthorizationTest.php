@@ -7,7 +7,6 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\LeaveType;
 use App\Models\LeaveRequest;
-use App\Models\PayrollRecord;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -174,25 +173,6 @@ class AuthorizationTest extends TestCase
     }
 
     /** @test */
-    public function employee_cannot_view_another_employees_payslip()
-    {
-        $payroll = PayrollRecord::create([
-            'organization_id' => $this->orgA->id,
-            'user_id' => $this->emp2A->id,
-            'month_year' => '2026-08',
-            'gross_salary' => 80000,
-            'total_deductions' => 10000,
-            'net_salary' => 70000,
-            'status' => 'paid',
-        ]);
-
-        $response = $this->withHeader('Authorization', 'Bearer token_emp1A')
-            ->getJson("/api/payroll/{$payroll->id}/payslip");
-
-        $response->assertStatus(403);
-    }
-
-    /** @test */
     public function hr_cannot_access_admin_only_settings()
     {
         $response = $this->withHeader('Authorization', 'Bearer token_hrA')
@@ -212,7 +192,7 @@ class AuthorizationTest extends TestCase
     }
 
     /** @test */
-    public function employee_cannot_create_employees_or_generate_payroll()
+    public function employee_cannot_create_employees()
     {
         $resStore = $this->withHeader('Authorization', 'Bearer token_emp1A')
             ->postJson('/api/employees', [
@@ -226,11 +206,6 @@ class AuthorizationTest extends TestCase
             ]);
 
         $resStore->assertStatus(403);
-
-        $resPayroll = $this->withHeader('Authorization', 'Bearer token_emp1A')
-            ->postJson('/api/payroll/generate', ['month_year' => '2026-08']);
-
-        $resPayroll->assertStatus(403);
     }
 
     /** @test */

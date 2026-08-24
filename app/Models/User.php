@@ -193,16 +193,6 @@ class User extends Authenticatable
         return $this->hasMany(LeaveBalance::class);
     }
 
-    public function salaryStructure()
-    {
-        return $this->hasOne(SalaryStructure::class);
-    }
-
-    public function payrollRecords()
-    {
-        return $this->hasMany(PayrollRecord::class);
-    }
-
     public function documents()
     {
         return $this->hasMany(EmployeeDocument::class);

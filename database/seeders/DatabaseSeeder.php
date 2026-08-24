@@ -15,8 +15,6 @@ use App\Models\LeaveType;
 use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
 use App\Models\Attendance;
-use App\Models\SalaryStructure;
-use App\Models\PayrollRecord;
 use App\Models\Announcement;
 use App\Models\OnboardingChecklist;
 use App\Models\EmployeeRiskScore;
@@ -32,7 +30,6 @@ use App\Models\Timesheet;
 use App\Models\Asset;
 use App\Models\HelpdeskTicket;
 use App\Models\Notification;
-use App\Services\StatutoryPayrollService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Carbon\Carbon;
@@ -301,32 +298,6 @@ class DatabaseSeeder extends Seeder
             LeaveBalance::create(['organization_id' => $org->id, 'user_id' => $u->id, 'leave_type_id' => $casual->id, 'allocated' => 12, 'used' => 2, 'remaining' => 10]);
             LeaveBalance::create(['organization_id' => $org->id, 'user_id' => $u->id, 'leave_type_id' => $sick->id, 'allocated' => 10, 'used' => 1, 'remaining' => 9]);
             LeaveBalance::create(['organization_id' => $org->id, 'user_id' => $u->id, 'leave_type_id' => $earned->id, 'allocated' => 15, 'used' => 3, 'remaining' => 12]);
-
-            // Statutory Payroll Structure
-            $breakdown = StatutoryPayrollService::calculateBreakdown($u->base_salary);
-            SalaryStructure::create([
-                'organization_id' => $org->id,
-                'user_id' => $u->id,
-                'base_salary' => $u->base_salary,
-                'housing_allowance' => $breakdown['hra'],
-                'transport_allowance' => $breakdown['transport'],
-                'tax_deduction' => $breakdown['tds_monthly'] + $breakdown['professional_tax'],
-                'other_deductions' => $breakdown['employee_pf'],
-                'net_salary' => $breakdown['net_salary'],
-            ]);
-
-            // Payroll Records
-            PayrollRecord::create([
-                'organization_id' => $org->id,
-                'user_id' => $u->id,
-                'month_year' => '2026-07',
-                'gross_salary' => $breakdown['gross_salary'],
-                'total_deductions' => $breakdown['total_deductions'],
-                'net_salary' => $breakdown['net_salary'],
-                'status' => 'paid',
-                'paid_at' => Carbon::parse('2026-07-31'),
-                'payslip_url' => '/payslips/2026-07-' . $u->employee_code . '.pdf',
-            ]);
 
             // Employee Documents
             EmployeeDocument::create([

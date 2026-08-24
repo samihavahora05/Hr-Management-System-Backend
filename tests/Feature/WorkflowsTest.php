@@ -9,7 +9,6 @@ use App\Models\LeaveType;
 use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
 use App\Models\Attendance;
-use App\Models\PayrollRecord;
 use App\Models\OnboardingChecklist;
 use App\Models\Announcement;
 use App\Models\AuditLog;
@@ -164,24 +163,6 @@ class WorkflowsTest extends TestCase
             'used' => 3,
             'remaining' => 9,
         ]);
-    }
-
-    /** @test */
-    public function test_payroll_generation_and_payslip_workflow()
-    {
-        $resGen = $this->withHeader('Authorization', 'Bearer hr_token')
-            ->postJson('/api/payroll/generate', ['month_year' => '2026-08']);
-
-        $resGen->assertStatus(200);
-
-        $record = PayrollRecord::where('user_id', $this->empUser->id)->first();
-        $this->assertNotNull($record);
-
-        $resPayslip = $this->withHeader('Authorization', 'Bearer emp_token')
-            ->getJson("/api/payroll/{$record->id}/payslip");
-
-        $resPayslip->assertStatus(200);
-        $resPayslip->assertJsonPath('payslip.id', $record->id);
     }
 
     /** @test */

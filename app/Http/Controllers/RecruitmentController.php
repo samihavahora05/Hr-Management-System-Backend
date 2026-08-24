@@ -10,10 +10,8 @@ use App\Models\User;
 use App\Models\Role;
 use App\Models\LeaveType;
 use App\Models\LeaveBalance;
-use App\Models\SalaryStructure;
 use App\Models\AuditLog;
 use App\Services\NotificationService;
-use App\Services\StatutoryPayrollService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
@@ -262,19 +260,6 @@ class RecruitmentController extends Controller
                 'remaining' => $lt->annual_quota,
             ]);
         }
-
-        // Auto Create Statutory Salary Structure
-        $breakdown = StatutoryPayrollService::calculateBreakdown($request->salary_offered);
-        SalaryStructure::create([
-            'organization_id' => $actor->organization_id,
-            'user_id' => $user->id,
-            'base_salary' => $request->salary_offered,
-            'housing_allowance' => $breakdown['hra'],
-            'transport_allowance' => $breakdown['transport'],
-            'tax_deduction' => $breakdown['tds_monthly'] + $breakdown['professional_tax'],
-            'other_deductions' => $breakdown['employee_pf'],
-            'net_salary' => $breakdown['net_salary'],
-        ]);
 
         // Create Offer Record
         $offer = JobOffer::create([

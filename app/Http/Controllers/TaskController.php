@@ -474,6 +474,13 @@ class TaskController extends Controller
             return response()->json(['message' => 'Task not found'], 404);
         }
 
+        // Only the assigned employee performing the task can update checklist subtasks
+        if ((int)$task->assigned_to !== (int)$user->id) {
+            return response()->json([
+                'message' => 'Unauthorized: Only the assigned employee performing this task can update checklist subtasks.'
+            ], 403);
+        }
+
         $request->validate([
             'subtask_id' => 'required',
         ]);

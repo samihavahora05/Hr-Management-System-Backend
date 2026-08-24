@@ -7,7 +7,6 @@ use App\Models\Role;
 use App\Models\EmployeeDocument;
 use App\Models\LeaveType;
 use App\Models\LeaveBalance;
-use App\Models\SalaryStructure;
 use App\Models\AuditLog;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
@@ -145,25 +144,6 @@ class EmployeeController extends Controller
             ]);
         }
 
-        // Auto-create salary structure
-        $base = $request->base_salary;
-        $hra = round($base * 0.3, 2);
-        $transport = round($base * 0.1, 2);
-        $tax = round($base * 0.1, 2);
-        $other = round($base * 0.05, 2);
-        $net = $base + $hra + $transport - $tax - $other;
-
-        SalaryStructure::create([
-            'organization_id' => $actor->organization_id,
-            'user_id' => $employee->id,
-            'base_salary' => $base,
-            'housing_allowance' => $hra,
-            'transport_allowance' => $transport,
-            'tax_deduction' => $tax,
-            'other_deductions' => $other,
-            'net_salary' => $net,
-        ]);
-
         AuditLog::create([
             'organization_id' => $actor->organization_id,
             'actor_id' => $actor->id,
@@ -195,7 +175,7 @@ class EmployeeController extends Controller
         // Check if employee exists in the same organization
         $employee = User::where('organization_id', $actor->organization_id)
             ->where('id', $id)
-            ->with(['role', 'manager', 'documents', 'salaryStructure', 'leaveBalances.leaveType', 'latestRiskScore'])
+            ->with(['role', 'manager', 'documents', 'leaveBalances.leaveType', 'latestRiskScore'])
             ->first();
 
         if (!$employee) {
@@ -216,9 +196,6 @@ class EmployeeController extends Controller
         // Mask base salary for non-Admin/HR roles
         if (!in_array($roleName, ['admin', 'hr'])) {
             $employee->makeHidden(['base_salary']);
-            if ($employee->salaryStructure && $employee->id !== $actor->id) {
-                unset($employee->salaryStructure);
-            }
         }
 
         return response()->json(['employee' => $employee]);
@@ -291,7 +268,7 @@ class EmployeeController extends Controller
             'action' => 'update_employee',
             'target_type' => User::class,
             'target_id' => $employee->id,
-            'payload' => $request->all(),
+            'payload' => $request->except(['password', 'remember_token']),
         ]);
 
         return response()->json([
@@ -319,17 +296,29 @@ class EmployeeController extends Controller
         }
 
         $request->validate([
-            'title' => 'required|string',
-            'type' => 'required|string',
-            'file_url' => 'required|string',
+            'title' => 'required|string|max:255',
+            'type' => 'required|string|max:50',
+            'file' => 'nullable|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240',
+            'file_url' => 'nullable|string',
         ]);
+
+        $storedPath = null;
+        if ($request->hasFile('file')) {
+            $uploaded = $request->file('file');
+            $safeName = \Illuminate\Support\Str::uuid()->toString() . '.' . $uploaded->getClientOriginalExtension();
+            $storedPath = $uploaded->storeAs('documents/' . $actor->organization_id, $safeName, 'local');
+        } elseif ($request->filled('file_url')) {
+            $storedPath = $request->file_url;
+        } else {
+            return response()->json(['message' => 'A valid document file or file_url is required.'], 422);
+        }
 
         $doc = EmployeeDocument::create([
             'organization_id' => $actor->organization_id,
             'user_id' => $employee->id,
             'title' => $request->title,
             'type' => $request->type,
-            'file_url' => $request->file_url,
+            'file_url' => $storedPath,
         ]);
 
         return response()->json([
