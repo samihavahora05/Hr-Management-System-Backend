@@ -9,15 +9,45 @@ use App\Models\AuditLog;
 use App\Services\PayrollService;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 use Carbon\Carbon;
 
 class PayrollController extends Controller
 {
+    private function ensureTableExists()
+    {
+        if (!Schema::hasTable('payrolls')) {
+            Schema::create('payrolls', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('organization_id')->constrained('organizations')->onDelete('cascade');
+                $table->foreignId('employee_id')->constrained('users')->onDelete('cascade');
+                $table->string('pay_period_month');
+                $table->integer('pay_period_year');
+                $table->date('pay_date')->nullable();
+                $table->string('payment_mode')->default('bank_transfer');
+                $table->string('status')->default('generated');
+                $table->json('earnings')->nullable();
+                $table->json('deductions')->nullable();
+                $table->decimal('total_earnings', 14, 2)->default(0.00);
+                $table->decimal('total_deductions', 14, 2)->default(0.00);
+                $table->decimal('net_salary', 14, 2)->default(0.00);
+                $table->string('net_salary_words')->nullable();
+                $table->foreignId('created_by')->nullable()->constrained('users')->onDelete('set null');
+                $table->timestamp('paid_at')->nullable();
+                $table->text('notes')->nullable();
+                $table->timestamps();
+            });
+        }
+    }
+
     /**
      * Admin list view with month, year, department, and status filters.
      */
     public function index(Request $request)
     {
+        $this->ensureTableExists();
+
         $user = $request->user();
         if ($user->getCanonicalRole() !== 'admin') {
             return response()->json(['message' => 'Unauthorized: Only Administrator can access the organization payroll register.'], 403);
@@ -92,6 +122,8 @@ class PayrollController extends Controller
      */
     public function store(Request $request)
     {
+        $this->ensureTableExists();
+
         $user = $request->user();
         if ($user->getCanonicalRole() !== 'admin') {
             return response()->json(['message' => 'Unauthorized: Only Administrator can generate payroll.'], 403);
@@ -162,6 +194,8 @@ class PayrollController extends Controller
      */
     public function bulkGenerate(Request $request)
     {
+        $this->ensureTableExists();
+
         $user = $request->user();
         if ($user->getCanonicalRole() !== 'admin') {
             return response()->json(['message' => 'Unauthorized: Only Administrator can bulk generate payroll.'], 403);
@@ -257,6 +291,8 @@ class PayrollController extends Controller
      */
     public function show(Request $request, $id)
     {
+        $this->ensureTableExists();
+
         $user = $request->user();
         $role = $user->getCanonicalRole();
 
@@ -289,6 +325,8 @@ class PayrollController extends Controller
      */
     public function update(Request $request, $id)
     {
+        $this->ensureTableExists();
+
         $user = $request->user();
         if ($user->getCanonicalRole() !== 'admin') {
             return response()->json(['message' => 'Unauthorized: Only Administrator can edit payroll.'], 403);
@@ -350,6 +388,8 @@ class PayrollController extends Controller
      */
     public function markPaid(Request $request, $id)
     {
+        $this->ensureTableExists();
+
         $user = $request->user();
         if ($user->getCanonicalRole() !== 'admin') {
             return response()->json(['message' => 'Unauthorized: Only Administrator can mark payroll as paid.'], 403);
@@ -402,6 +442,8 @@ class PayrollController extends Controller
      */
     public function employeePayslips(Request $request)
     {
+        $this->ensureTableExists();
+
         $user = $request->user();
 
         $payslips = Payroll::where('organization_id', $user->organization_id)
@@ -421,6 +463,8 @@ class PayrollController extends Controller
      */
     public function slipData(Request $request, $id)
     {
+        $this->ensureTableExists();
+
         $user = $request->user();
         $role = $user->getCanonicalRole();
 
