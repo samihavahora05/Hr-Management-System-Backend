@@ -171,6 +171,6 @@ docker run -p 8000:8000 hrms-backend
 
 ---
 
-## 📄 License
+## 📄 License & Copyright
 
-This project is open-sourced software licensed under the **MIT License**.
+This project is licensed under the **MIT License** — Copyright © 2026 **Samiha Vahora** & **BlueBoxx**. All rights reserved. See the [LICENSE](LICENSE) file for more details.
