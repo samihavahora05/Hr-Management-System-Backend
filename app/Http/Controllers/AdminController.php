@@ -135,6 +135,11 @@ class AdminController extends Controller
             return response()->json(['message' => 'User not found in organization'], 404);
         }
 
+        // Prevent modifying Master Admin role
+        if (($targetUser->email === 'admin@blueboxx.com' || ($targetUser->role && strtolower($targetUser->role->name) === 'admin')) && $request->role !== 'admin') {
+            return response()->json(['message' => 'The Primary Admin account is permanent and its role cannot be modified.'], 403);
+        }
+
         $role = Role::where('name', $request->role)->first();
         $oldRole = $targetUser->role->name ?? 'None';
         $targetUser->role_id = $role->id;
@@ -177,6 +182,11 @@ class AdminController extends Controller
         $targetUser = User::where('organization_id', $admin->organization_id)->where('id', $id)->first();
         if (!$targetUser) {
             return response()->json(['message' => 'User not found in organization'], 404);
+        }
+
+        // Prevent deactivating or terminating Master Admin
+        if (($targetUser->email === 'admin@blueboxx.com' || ($targetUser->role && strtolower($targetUser->role->name) === 'admin')) && $request->status !== 'active') {
+            return response()->json(['message' => 'The Primary Admin account is permanent and must remain active.'], 403);
         }
 
         $oldStatus = $targetUser->status;

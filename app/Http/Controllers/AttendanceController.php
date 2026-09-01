@@ -34,7 +34,7 @@ class AttendanceController extends Controller
         $nowTime = $request->time ? $request->time : Carbon::now()->format('H:i:s');
 
         // Dynamic 15-Minute Grace Period Evaluation
-        $startTime = '09:00:00';
+        $startTime = '10:00:00';
         $graceMinutes = 15;
 
         if ($user->shift) {
@@ -46,9 +46,9 @@ class AttendanceController extends Controller
             $shiftStart = Carbon::createFromFormat('H:i:s', $startTime);
             $cutoffTime = (clone $shiftStart)->addMinutes($graceMinutes)->format('H:i:s');
         } catch (\Exception $e) {
-            $startTime = '09:00:00';
-            $shiftStart = Carbon::createFromFormat('H:i:s', '09:00:00');
-            $cutoffTime = '09:15:00';
+            $startTime = '10:00:00';
+            $shiftStart = Carbon::createFromFormat('H:i:s', '10:00:00');
+            $cutoffTime = '10:15:00';
         }
 
         $isLate = $nowTime > $cutoffTime;
@@ -397,7 +397,7 @@ class AttendanceController extends Controller
             'schedule' => [
                 'shift_name' => 'Standard General Shift',
                 'work_days' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-                'start_time' => '09:00:00',
+                'start_time' => '10:00:00',
                 'end_time' => '18:00:00',
                 'grace_period_minutes' => 30,
             ]
@@ -481,7 +481,7 @@ class AttendanceController extends Controller
 
             $shift = $user->shift;
             $rawEndTime = $shift && $shift->end_time ? $shift->end_time : '18:00:00';
-            $rawStartTime = $shift && $shift->start_time ? $shift->start_time : '09:00:00';
+            $rawStartTime = $shift && $shift->start_time ? $shift->start_time : '10:00:00';
 
             $endTimeStr = strlen($rawEndTime) === 5 ? $rawEndTime . ':00' : $rawEndTime;
             $startTimeStr = strlen($rawStartTime) === 5 ? $rawStartTime . ':00' : $rawStartTime;

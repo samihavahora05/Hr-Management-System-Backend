@@ -225,9 +225,8 @@ class RecruitmentController extends Controller
             return response()->json(['message' => 'An employee account already exists for this email.'], 400);
         }
 
-        // Generate Employee Code
-        $count = User::where('organization_id', $actor->organization_id)->count() + 1;
-        $employeeCode = 'EMP' . str_pad($count, 3, '0', STR_PAD_LEFT);
+        // Generate Dynamic Sequential Employee Code
+        $employeeCode = User::generateNextEmployeeCode($actor->organization_id);
         $role = Role::where('name', 'employee')->first();
 
         // Create Master Employee User Record

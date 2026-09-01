@@ -179,6 +179,13 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::get('/reports/leave-usage', [ReportController::class, 'leaveUsageReport'])->middleware('role:admin,hr');
     Route::get('/reports/recruitment', [ReportController::class, 'recruitmentReport'])->middleware('role:admin,hr');
 
+    // Document Vault & Daily Work Reports
+    Route::get('/documents', [DocumentController::class, 'index']);
+    Route::post('/documents', [DocumentController::class, 'upload']);
+    Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
+    Route::get('/documents/{id}/view', [DocumentController::class, 'view']);
+    Route::delete('/documents/{id}', [DocumentController::class, 'destroy']);
+
     // Announcements
     Route::get('/announcements', [AnnouncementController::class, 'index']);
     Route::post('/announcements', [AnnouncementController::class, 'store'])->middleware('role:admin,hr');
