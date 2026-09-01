@@ -73,7 +73,7 @@ class DocumentController extends Controller
         $user = $request->user();
         $role = $user->getCanonicalRole();
 
-        $query = EmployeeDocument::where('organization_id', $user->organization_id)->with(['user']);
+        $query = EmployeeDocument::where('organization_id', $user->organization_id)->with(['user.role']);
 
         if ($role === 'employee') {
             $query->where('user_id', $user->id);
@@ -105,7 +105,7 @@ class DocumentController extends Controller
         $request->validate([
             'title' => 'required|string|max:255',
             'type' => 'required|string|max:50',
-            'file' => 'required|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240', // 10MB max
+            'file' => 'required|file|mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png|max:15360', // 15MB max
             'user_id' => 'nullable|exists:users,id',
         ]);
 
@@ -141,7 +141,7 @@ class DocumentController extends Controller
 
         return response()->json([
             'message' => 'Document uploaded and securely saved to vault successfully!',
-            'document' => $doc->load('user')
+            'document' => $doc->load('user.role')
         ], 201);
     }
 
@@ -207,8 +207,12 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Document not found'], 404);
         }
 
-        // Only owner, HR or Admin can delete
-        if ((int) $doc->user_id !== (int) $user->id && !in_array($user->getCanonicalRole(), ['admin', 'hr'])) {
+        $role = $user->getCanonicalRole();
+        $isOwner = (int) $doc->user_id === (int) $user->id;
+        $isAdminOrHr = in_array($role, ['admin', 'hr']);
+        $isManagerOrTlOfSubordinate = in_array($role, ['manager', 'team_leader']) && in_array($doc->user_id, $this->getSubordinateUserIds($user));
+
+        if (!$isOwner && !$isAdminOrHr && !$isManagerOrTlOfSubordinate) {
             return response()->json(['message' => 'Unauthorized: Cannot delete this document'], 403);
         }
 

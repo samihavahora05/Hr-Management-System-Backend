@@ -88,6 +88,7 @@ class EmployeeController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
+            'password' => 'nullable|string|min:6',
             'role' => 'required|string',
             'department' => 'required|string',
             'designation' => 'required|string',
@@ -100,16 +101,17 @@ class EmployeeController extends Controller
 
         $role = Role::where('name', $request->role)->first();
 
-        // Generate guaranteed unique employee code
-        $maxId = (User::max('id') ?? 0) + 1;
-        $employeeCode = 'EMP' . str_pad($maxId, 3, '0', STR_PAD_LEFT);
+        // Generate dynamic sequential employee code (reuses empty slots from removed employees)
+        $employeeCode = User::generateNextEmployeeCode($actor->organization_id);
+
+        $plainPassword = $request->filled('password') ? $request->password : 'password123';
 
         $employee = User::create([
             'organization_id' => $actor->organization_id,
             'role_id' => $role ? $role->id : null,
             'name' => $request->name,
             'email' => $request->email,
-            'password' => Hash::make('password123'),
+            'password' => Hash::make($plainPassword),
             'employee_code' => $employeeCode,
             'department' => $request->department,
             'designation' => $request->designation,
@@ -245,6 +247,7 @@ class EmployeeController extends Controller
 
         $request->validate([
             'name' => 'sometimes|string|max:255',
+            'password' => 'nullable|string|min:6',
             'department' => 'sometimes|string',
             'designation' => 'sometimes|string',
             'status' => 'sometimes|in:active,inactive,on_leave',
@@ -257,6 +260,10 @@ class EmployeeController extends Controller
             if ($role) {
                 $employee->role_id = $role->id;
             }
+        }
+
+        if ($request->filled('password')) {
+            $employee->password = Hash::make($request->password);
         }
 
         $employee->fill($request->only(['name', 'department', 'designation', 'status', 'phone', 'base_salary', 'manager_id', 'shift_id']));
@@ -347,6 +354,12 @@ class EmployeeController extends Controller
 
         if (!$employee) {
             return response()->json(['message' => 'User record not found'], 404);
+        }
+
+        // Protect Admin accounts from deletion (Permanent accounts)
+        $empRoleName = strtolower($employee->role->name ?? '');
+        if ($empRoleName === 'admin' || $employee->email === 'admin@blueboxx.com') {
+            return response()->json(['message' => 'The Primary Admin account is permanent and cannot be removed from the system.'], 403);
         }
 
         $empName = $employee->name;

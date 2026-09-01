@@ -168,6 +168,51 @@ class User extends Authenticatable
         return $this->getCanonicalRole() === 'employee';
     }
 
+    /**
+     * Dynamically generates the next sequential available employee code (EMP001, EMP002, ...)
+     * Reuses empty slots created when employees are removed so total count matches active numbering.
+     */
+    public static function generateNextEmployeeCode($organizationId = null): string
+    {
+        $query = self::query();
+        if ($organizationId) {
+            $query->where('organization_id', $organizationId);
+        }
+        $existingCodes = $query->whereNotNull('employee_code')
+            ->pluck('employee_code')
+            ->toArray();
+
+        $i = 1;
+        while (true) {
+            $code = 'EMP' . str_pad($i, 3, '0', STR_PAD_LEFT);
+            if (!in_array($code, $existingCodes)) {
+                return $code;
+            }
+            $i++;
+        }
+    }
+
+    /**
+     * Realigns employee codes sequentially (EMP001, EMP002, ...) to eliminate any historical gaps.
+     */
+    public static function realignEmployeeCodes($organizationId = null)
+    {
+        $query = self::query()->orderBy('id', 'asc');
+        if ($organizationId) {
+            $query->where('organization_id', $organizationId);
+        }
+        $users = $query->get();
+        $index = 1;
+        foreach ($users as $user) {
+            $newCode = 'EMP' . str_pad($index, 3, '0', STR_PAD_LEFT);
+            if ($user->employee_code !== $newCode) {
+                $user->employee_code = $newCode;
+                $user->save();
+            }
+            $index++;
+        }
+    }
+
     public function manager()
     {
         return $this->belongsTo(User::class, 'manager_id');

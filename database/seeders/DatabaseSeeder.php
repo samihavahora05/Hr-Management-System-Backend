@@ -76,8 +76,8 @@ class DatabaseSeeder extends Seeder
 
         $generalShift = Shift::create([
             'organization_id' => $org->id,
-            'name' => 'General Day Shift (09:00 AM - 06:00 PM)',
-            'start_time' => '09:00:00',
+            'name' => 'General Day Shift (10:00 AM - 06:00 PM)',
+            'start_time' => '10:00:00',
             'end_time' => '18:00:00',
             'grace_period_minutes' => 15,
             'work_days' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
@@ -110,6 +110,7 @@ class DatabaseSeeder extends Seeder
 
         // 4. Create Seed Users for Master Employee Record
         $password = Hash::make('password123');
+        $adminPassword = Hash::make('Blueboxx@2026');
 
         $admin = User::create([
             'organization_id' => $org->id,
@@ -119,7 +120,7 @@ class DatabaseSeeder extends Seeder
             'shift_id' => $generalShift->id,
             'name' => 'Admin User',
             'email' => 'admin@blueboxx.com',
-            'password' => $password,
+            'password' => $adminPassword,
             'employee_code' => 'EMP001',
             'department' => 'Executive',
             'designation' => 'Director of Operations',
