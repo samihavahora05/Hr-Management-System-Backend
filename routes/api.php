@@ -228,3 +228,8 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::post('/assistant/ask', [AssistantController::class, 'ask']);
     Route::post('/assistant/execute', [AssistantController::class, 'executeAction']);
 });
+
+// Preflight OPTIONS catch-all
+Route::options('{any}', function () {
+    return response('', 200);
+})->where('any', '.*');

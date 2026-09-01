@@ -12,8 +12,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->prepend(\App\Http\Middleware\CorsMiddleware::class);
         $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
         $middleware->alias([
+            'cors' => \App\Http\Middleware\CorsMiddleware::class,
             'auth.token' => \App\Http\Middleware\TokenAuthMiddleware::class,
             'role' => \App\Http\Middleware\RoleAuthMiddleware::class,
         ]);

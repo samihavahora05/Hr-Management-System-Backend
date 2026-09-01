@@ -23,3 +23,7 @@ Route::get('/setup-db', function () {
         ], 500);
     }
 });
+
+Route::options('{any}', function () {
+    return response('', 200);
+})->where('any', '.*');
