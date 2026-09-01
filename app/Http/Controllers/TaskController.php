@@ -591,8 +591,8 @@ class TaskController extends Controller
             return response()->json(['message' => 'Task not found'], 404);
         }
 
-        if ($task->assigner_id !== $user->id && $role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized: Only task assigner or Admin can delete this task.'], 403);
+        if ($task->assigner_id !== $user->id && !in_array($role, ['admin', 'hr', 'manager', 'team_leader'])) {
+            return response()->json(['message' => 'Unauthorized: Only task assigner or Admin/Management can delete this task.'], 403);
         }
 
         $task->delete();
