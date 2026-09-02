@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\AuditLog;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -18,7 +19,7 @@ class AuthController extends Controller
             'password' => 'required',
         ]);
 
-        $user = User::where('email', $request->email)->with(['role', 'organization'])->first();
+        $user = User::where('email', $request->email)->with(['role', 'organization', 'manager'])->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
@@ -46,6 +47,8 @@ class AuthController extends Controller
             'payload' => ['ip' => $request->ip()],
         ]);
 
+        $formattedJoiningDate = $user->joining_date ? Carbon::parse($user->joining_date)->format('Y-m-d') : null;
+
         return response()->json([
             'message' => 'Login successful',
             'token' => $token,
@@ -58,9 +61,15 @@ class AuthController extends Controller
                 'role_display' => $user->role ? $user->role->display_name : 'Employee',
                 'department' => $user->department,
                 'designation' => $user->designation,
+                'joining_date' => $formattedJoiningDate,
+                'status' => $user->status,
+                'phone' => $user->phone,
+                'avatar' => $user->avatar,
+                'base_salary' => $user->base_salary,
                 'organization' => $user->organization ? $user->organization->name : 'Organization',
                 'organization_id' => $user->organization_id,
-                'avatar' => $user->avatar,
+                'manager_name' => $user->manager ? $user->manager->name : null,
+                'manager_id' => $user->manager_id,
             ]
         ]);
     }
@@ -68,6 +77,7 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $user = $request->user()->load(['role', 'organization', 'manager']);
+        $formattedJoiningDate = $user->joining_date ? Carbon::parse($user->joining_date)->format('Y-m-d') : null;
 
         return response()->json([
             'user' => [
@@ -79,7 +89,7 @@ class AuthController extends Controller
                 'role_display' => $user->role ? $user->role->display_name : 'Employee',
                 'department' => $user->department,
                 'designation' => $user->designation,
-                'joining_date' => $user->joining_date,
+                'joining_date' => $formattedJoiningDate,
                 'status' => $user->status,
                 'phone' => $user->phone,
                 'avatar' => $user->avatar,
@@ -87,6 +97,7 @@ class AuthController extends Controller
                 'organization' => $user->organization ? $user->organization->name : '',
                 'organization_id' => $user->organization_id,
                 'manager_name' => $user->manager ? $user->manager->name : null,
+                'manager_id' => $user->manager_id,
             ]
         ]);
     }
@@ -119,5 +130,61 @@ class AuthController extends Controller
         $user->save();
 
         return response()->json(['message' => 'Password updated successfully']);
+    }
+
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'email' => 'sometimes|required|email|unique:users,email,' . $user->id,
+            'phone' => 'nullable|string|max:50',
+            'department' => 'nullable|string|max:100',
+            'designation' => 'nullable|string|max:100',
+            'joining_date' => 'nullable|date',
+            'avatar' => 'nullable|string',
+            'gender' => 'nullable|string|max:20',
+            'dob' => 'nullable|date',
+        ]);
+
+        $fields = ['name', 'email', 'phone', 'department', 'designation', 'joining_date', 'avatar', 'gender', 'dob'];
+        $user->fill($request->only($fields));
+        $user->save();
+
+        AuditLog::create([
+            'organization_id' => $user->organization_id,
+            'actor_id' => $user->id,
+            'action' => 'update_profile',
+            'target_type' => User::class,
+            'target_id' => $user->id,
+            'payload' => $request->only($fields),
+        ]);
+
+        $user->load(['role', 'organization', 'manager']);
+        $formattedJoiningDate = $user->joining_date ? Carbon::parse($user->joining_date)->format('Y-m-d') : null;
+
+        return response()->json([
+            'message' => 'Profile updated successfully',
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'employee_code' => $user->employee_code,
+                'role' => $user->role ? $user->role->name : 'employee',
+                'role_display' => $user->role ? $user->role->display_name : 'Employee',
+                'department' => $user->department,
+                'designation' => $user->designation,
+                'joining_date' => $formattedJoiningDate,
+                'status' => $user->status,
+                'phone' => $user->phone,
+                'avatar' => $user->avatar,
+                'base_salary' => $user->base_salary,
+                'organization' => $user->organization ? $user->organization->name : '',
+                'organization_id' => $user->organization_id,
+                'manager_name' => $user->manager ? $user->manager->name : null,
+                'manager_id' => $user->manager_id,
+            ]
+        ]);
     }
 }

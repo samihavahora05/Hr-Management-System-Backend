@@ -235,12 +235,17 @@ class EmployeeController extends Controller
             if ($employee->id !== $actor->id) {
                 return response()->json(['message' => 'Unauthorized: Insufficient permissions to update employee record'], 403);
             }
-            // Self update allowed only for phone/avatar
+            // Self update allowed for personal and employment profile details
             $request->validate([
+                'name' => 'sometimes|string|max:255',
+                'email' => 'sometimes|email|unique:users,email,' . $employee->id,
                 'phone' => 'nullable|string',
+                'department' => 'nullable|string',
+                'designation' => 'nullable|string',
+                'joining_date' => 'nullable|date',
                 'avatar' => 'nullable|string',
             ]);
-            $employee->fill($request->only(['phone', 'avatar']));
+            $employee->fill($request->only(['name', 'email', 'phone', 'department', 'designation', 'joining_date', 'avatar']));
             $employee->save();
             return response()->json(['message' => 'Profile updated successfully', 'employee' => $employee]);
         }

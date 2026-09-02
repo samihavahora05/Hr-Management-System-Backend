@@ -35,6 +35,7 @@ Route::post('/auth/login', [AuthController::class, 'login'])->middleware('thrott
 Route::middleware(TokenAuthMiddleware::class)->group(function () {
     // Auth & Personal
     Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::put('/auth/profile', [AuthController::class, 'updateProfile']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::post('/auth/change-password', [AuthController::class, 'changePassword'])->middleware('throttle:6,1');
 
@@ -163,8 +164,8 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
 
     // Notifications
     Route::get('/notifications', [NotificationController::class, 'index']);
-    Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
-    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+    Route::match(['get', 'post', 'put'], '/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::match(['get', 'post', 'put'], '/notifications/read-all', [NotificationController::class, 'markAllRead']);
 
     // Document Management
     Route::get('/documents', [DocumentController::class, 'index']);
