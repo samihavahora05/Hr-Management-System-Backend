@@ -235,38 +235,66 @@ class EmployeeController extends Controller
             if ($employee->id !== $actor->id) {
                 return response()->json(['message' => 'Unauthorized: Insufficient permissions to update employee record'], 403);
             }
-            // Self update allowed only for phone/avatar
+            // Self update allowed for personal and employment profile details
             $request->validate([
+                'name' => 'sometimes|string|max:255',
+                'email' => 'sometimes|email|unique:users,email,' . $employee->id,
                 'phone' => 'nullable|string',
+                'department' => 'nullable|string',
+                'designation' => 'nullable|string',
+                'joining_date' => 'nullable|date',
                 'avatar' => 'nullable|string',
             ]);
-            $employee->fill($request->only(['phone', 'avatar']));
+            $employee->fill($request->only(['name', 'email', 'phone', 'department', 'designation', 'joining_date', 'avatar']));
             $employee->save();
             return response()->json(['message' => 'Profile updated successfully', 'employee' => $employee]);
         }
 
         $request->validate([
             'name' => 'sometimes|string|max:255',
+            'email' => 'sometimes|email|unique:users,email,' . $employee->id,
             'password' => 'nullable|string|min:6',
+            'role' => 'sometimes|string',
             'department' => 'sometimes|string',
             'designation' => 'sometimes|string',
             'status' => 'sometimes|in:active,inactive,on_leave',
             'phone' => 'nullable|string',
             'base_salary' => 'sometimes|numeric|min:0',
+            'joining_date' => 'nullable|date',
+            'manager_id' => 'nullable',
+            'shift_id' => 'nullable',
         ]);
 
-        if ($request->has('role')) {
+        $isPrimaryAdmin = $employee->id === 1 || ($employee->role && $employee->role->name === 'admin' && $employee->email === 'admin@blueboxx.com');
+
+        if ($request->has('role') && !$isPrimaryAdmin) {
             $role = Role::where('name', $request->role)->first();
             if ($role) {
                 $employee->role_id = $role->id;
             }
         }
 
+        if ($request->has('status') && !$isPrimaryAdmin) {
+            $employee->status = $request->status;
+        }
+
         if ($request->filled('password')) {
             $employee->password = Hash::make($request->password);
         }
 
-        $employee->fill($request->only(['name', 'department', 'designation', 'status', 'phone', 'base_salary', 'manager_id', 'shift_id']));
+        if ($request->filled('email')) {
+            $employee->email = $request->email;
+        }
+
+        if ($request->has('manager_id')) {
+            $employee->manager_id = $request->manager_id ? (int) $request->manager_id : null;
+        }
+
+        if ($request->has('shift_id')) {
+            $employee->shift_id = $request->shift_id ? (int) $request->shift_id : null;
+        }
+
+        $employee->fill($request->only(['name', 'department', 'designation', 'phone', 'base_salary', 'joining_date']));
         $employee->save();
 
         AuditLog::create([

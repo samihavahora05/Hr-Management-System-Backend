@@ -408,6 +408,40 @@ class TaskController extends Controller
         } else {
             $newStatus = $statusInput;
         }
+
+        // Phase progression ranks: todo (1) -> in_progress (2) -> completed (3)
+        $phaseRanks = [
+            'todo' => 1,
+            'pending' => 1,
+            'in_progress' => 2,
+            'under_review' => 2,
+            'completed' => 3,
+            'overdue' => 2,
+            'cancelled' => 3,
+        ];
+
+        $currentRank = $phaseRanks[$task->status] ?? 1;
+        $targetRank = $phaseRanks[$newStatus] ?? 1;
+
+        $isAdminOrAssigner = $user->id === $task->assigner_id || in_array($user->getCanonicalRole(), ['admin', 'hr']);
+
+        // Non-admin assignee cannot manually move backward to a previous phase
+        if (!$isAdminOrAssigner && $targetRank < $currentRank && $task->status !== 'overdue') {
+            return response()->json([
+                'message' => 'Status progression error: You cannot move a task backward to a previous phase.'
+            ], 422);
+        }
+
+        $subtasks = $task->subtasks ?? [];
+        if (is_array($subtasks) && count($subtasks) > 0 && $newStatus === 'completed') {
+            $completedSubtasks = count(array_filter($subtasks, fn($s) => !empty($s['completed'])));
+            if ($completedSubtasks < count($subtasks)) {
+                return response()->json([
+                    'message' => 'Cannot complete task: Please finish all checklist subtasks first.'
+                ], 422);
+            }
+        }
+
         $task->status = $newStatus;
 
         if ($request->has('progress_percentage')) {
@@ -514,8 +548,17 @@ class TaskController extends Controller
         $totalSubtasks = count($subtasks);
         if ($totalSubtasks > 0) {
             $task->progress_percentage = (int) round(($completedCount / $totalSubtasks) * 100);
-            if ($task->progress_percentage > 0 && $task->progress_percentage < 100 && $task->status === 'todo') {
-                $task->status = 'in_progress';
+            if ($completedCount === $totalSubtasks) {
+                $task->status = 'completed';
+                $task->completed_at = Carbon::now();
+            } else {
+                // If subtask was pulled back / unchecked, task MUST NOT remain completed!
+                if ($task->status === 'completed') {
+                    $task->status = $completedCount > 0 ? 'in_progress' : 'todo';
+                    $task->completed_at = null;
+                } elseif ($task->status === 'todo' && $completedCount > 0) {
+                    $task->status = 'in_progress';
+                }
             }
         }
 
@@ -548,8 +591,8 @@ class TaskController extends Controller
             return response()->json(['message' => 'Task not found'], 404);
         }
 
-        if ($task->assigner_id !== $user->id && $role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized: Only task assigner or Admin can delete this task.'], 403);
+        if ($task->assigner_id !== $user->id && !in_array($role, ['admin', 'hr', 'manager', 'team_leader'])) {
+            return response()->json(['message' => 'Unauthorized: Only task assigner or Admin/Management can delete this task.'], 403);
         }
 
         $task->delete();

@@ -19,6 +19,19 @@ class Notification extends Model
         'link',
     ];
 
+    protected $casts = [
+        'is_read' => 'boolean',
+    ];
+
+    protected $appends = [
+        'action_url',
+    ];
+
+    public function getActionUrlAttribute()
+    {
+        return $this->link;
+    }
+
     public function user()
     {
         return $this->belongsTo(User::class);
