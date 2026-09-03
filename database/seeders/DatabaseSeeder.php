@@ -59,19 +59,19 @@ class DatabaseSeeder extends Seeder
         // 2. Create Branches, Locations & Shifts
         $hqBranch = Branch::create([
             'organization_id' => $org->id,
-            'name' => 'Headquarters (Mumbai)',
-            'code' => 'HQ-MUM',
-            'address' => 'Bandra Kurla Complex, Mumbai, Maharashtra 400051',
+            'name' => 'Headquarters (Vadodara)',
+            'code' => 'HQ-BDQ',
+            'address' => 'SF 02, INDIA BULLS MEGA MALL, Dinesh Mill Rd, near Swami Vivekananda Railway Over Bridge, Anand Nagar, Akota, Vadodara, Gujarat 390022',
             'status' => 'active',
         ]);
 
-        $mumbaiLocation = Location::create([
+        $vadodaraLocation = Location::create([
             'organization_id' => $org->id,
-            'name' => 'BKC Tech Park',
-            'city' => 'Mumbai',
-            'state' => 'Maharashtra',
+            'name' => 'India Bulls Mega Mall',
+            'city' => 'Vadodara',
+            'state' => 'Gujarat',
             'country' => 'India',
-            'postal_code' => '400051',
+            'postal_code' => '390022',
         ]);
 
         $generalShift = Shift::create([
