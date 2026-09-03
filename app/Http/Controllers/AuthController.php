@@ -68,6 +68,8 @@ class AuthController extends Controller
                 'base_salary' => $user->base_salary,
                 'organization' => $user->organization ? $user->organization->name : 'Organization',
                 'organization_id' => $user->organization_id,
+                'organization_logo' => $user->organization?->settings['logo_url'] ?? '/images/logoblue.png',
+                'organization_icon_logo' => $user->organization?->settings['icon_logo_url'] ?? '/images/Boxxlogo.png',
                 'manager_name' => $user->manager ? $user->manager->name : null,
                 'manager_id' => $user->manager_id,
             ]
@@ -96,6 +98,8 @@ class AuthController extends Controller
                 'base_salary' => $user->base_salary,
                 'organization' => $user->organization ? $user->organization->name : '',
                 'organization_id' => $user->organization_id,
+                'organization_logo' => $user->organization?->settings['logo_url'] ?? '/images/logoblue.png',
+                'organization_icon_logo' => $user->organization?->settings['icon_logo_url'] ?? '/images/Boxxlogo.png',
                 'manager_name' => $user->manager ? $user->manager->name : null,
                 'manager_id' => $user->manager_id,
             ]

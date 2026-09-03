@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Attendance;
 use App\Models\User;
+use App\Models\Organization;
 use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
@@ -29,7 +30,63 @@ class AttendanceController extends Controller
             ], 400);
         }
 
-        $user->load('shift');
+        // Office Location Geofence Verification: Clock-in only permitted if employee is at office place
+        $org = Organization::find($user->organization_id);
+        $settings = $org->settings ?? [];
+        $officeLocation = $settings['office_location'] ?? null;
+
+        if (!$officeLocation) {
+            $officeLocation = [
+                'enabled' => true,
+                'name' => 'Main Office Headquarters',
+                'latitude' => 19.0657,
+                'longitude' => 72.8687,
+                'radius_meters' => 300,
+                'address' => 'Bandra Kurla Complex, Mumbai, Maharashtra 400051',
+            ];
+            $settings['office_location'] = $officeLocation;
+            $org->settings = $settings;
+            $org->save();
+        }
+
+        $locationVerifiedNote = '';
+        if (!empty($officeLocation['enabled'])) {
+            $empLat = $request->latitude !== null ? floatval($request->latitude) : null;
+            $empLng = $request->longitude !== null ? floatval($request->longitude) : null;
+
+            if ($empLat === null || $empLng === null) {
+                return response()->json([
+                    'message' => 'Office location verification required: Clock-in is only possible when you are physically at the office premises. Please enable GPS location on your device.',
+                    'code' => 'LOCATION_REQUIRED',
+                    'office' => [
+                        'name' => $officeLocation['name'] ?? 'Main Office',
+                        'radius_meters' => $officeLocation['radius_meters'] ?? 300,
+                        'address' => $officeLocation['address'] ?? 'Office Premises',
+                    ]
+                ], 422);
+            }
+
+            $officeLat = floatval($officeLocation['latitude'] ?? 19.0657);
+            $officeLng = floatval($officeLocation['longitude'] ?? 72.8687);
+            $allowedRadius = floatval($officeLocation['radius_meters'] ?? 300);
+
+            $distanceMeters = $this->calculateDistanceMeters($empLat, $empLng, $officeLat, $officeLng);
+
+            if ($distanceMeters > $allowedRadius) {
+                $distanceFormatted = $distanceMeters >= 1000 ? round($distanceMeters / 1000, 1) . ' km' : round($distanceMeters) . ' meters';
+                return response()->json([
+                    'message' => "Clock-in restricted: You must be at the office premises to clock in. You are currently {$distanceFormatted} away from {$officeLocation['name']} (Allowed radius: {$allowedRadius} meters).",
+                    'code' => 'OUTSIDE_OFFICE_GEOFENCE',
+                    'distance_meters' => round($distanceMeters),
+                    'allowed_radius_meters' => $allowedRadius,
+                    'office_name' => $officeLocation['name'] ?? 'Main Office',
+                ], 403);
+            }
+
+            $distDisplay = round($distanceMeters);
+            $locationVerifiedNote = "Verified at office ({$distDisplay}m from center)";
+        }
+
         $user->load('shift');
         $nowTime = $request->time ? $request->time : Carbon::now()->format('H:i:s');
 
@@ -68,10 +125,15 @@ class AttendanceController extends Controller
             }
         }
 
+        $finalNotes = $request->notes ?? $lateNote;
+        if ($locationVerifiedNote) {
+            $finalNotes = $finalNotes . ' | ' . $locationVerifiedNote;
+        }
+
         if ($existing) {
             $existing->check_in = $nowTime;
             $existing->status = $status;
-            $existing->notes = $request->notes ?? $lateNote;
+            $existing->notes = $finalNotes;
             $existing->save();
             $attendance = $existing;
         } else {
@@ -81,12 +143,12 @@ class AttendanceController extends Controller
                 'date' => Carbon::today()->toDateString(),
                 'check_in' => $nowTime,
                 'status' => $status,
-                'notes' => $request->notes ?? $lateNote,
+                'notes' => $finalNotes,
             ]);
         }
 
         return response()->json([
-            'message' => 'Checked in successfully at ' . $nowTime . ($isLate ? " (Late by {$lateMinutes} mins)" : " (On-Time)"),
+            'message' => 'Checked in successfully at ' . $nowTime . ($isLate ? " (Late by {$lateMinutes} mins)" : " (On-Time)") . ' • Office location verified.',
             'attendance' => $attendance
         ]);
     }
@@ -381,13 +443,19 @@ class AttendanceController extends Controller
         $user = $request->user();
         $user->load('shift');
 
+        $isSaturday = Carbon::today()->isSaturday();
+        $todayAutoCheckout = $isSaturday ? '14:00:00' : '18:00:00';
+
         if ($user->shift) {
             return response()->json([
                 'schedule' => [
                     'shift_name' => $user->shift->name,
-                    'work_days' => $user->shift->work_days ?? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-                    'start_time' => $user->shift->start_time,
-                    'end_time' => $user->shift->end_time,
+                    'work_days' => $user->shift->work_days ?? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+                    'start_time' => $user->shift->start_time ?: '10:00:00',
+                    'end_time' => $isSaturday ? '14:00:00' : ($user->shift->end_time ?: '18:00:00'),
+                    'regular_end_time' => $user->shift->end_time ?: '18:00:00',
+                    'saturday_end_time' => '14:00:00',
+                    'today_auto_checkout_time' => $todayAutoCheckout,
                     'grace_period_minutes' => $user->shift->grace_period_minutes ?? 15,
                 ]
             ]);
@@ -396,10 +464,13 @@ class AttendanceController extends Controller
         return response()->json([
             'schedule' => [
                 'shift_name' => 'Standard General Shift',
-                'work_days' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+                'work_days' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
                 'start_time' => '10:00:00',
-                'end_time' => '18:00:00',
-                'grace_period_minutes' => 30,
+                'end_time' => $isSaturday ? '14:00:00' : '18:00:00',
+                'regular_end_time' => '18:00:00',
+                'saturday_end_time' => '14:00:00',
+                'today_auto_checkout_time' => $todayAutoCheckout,
+                'grace_period_minutes' => 15,
             ]
         ]);
     }
@@ -448,14 +519,15 @@ class AttendanceController extends Controller
         $count = $this->processAutoCheckouts($user->organization_id);
 
         return response()->json([
-            'message' => "Auto check-out evaluated successfully. {$count} record(s) automatically checked out at scheduled shift end times.",
+            'message' => "Auto check-out evaluated successfully. {$count} record(s) automatically checked out (6:00 PM Mon-Fri, 2:00 PM Saturdays).",
             'updated_count' => $count,
         ]);
     }
 
     /**
-     * Automatically clock out employees who have checked in but haven't clocked out
-     * once their assigned shift end time (or default organization shift end time) has passed.
+     * Automatically clock out employees who have checked in but haven't clocked out:
+     * - Every Saturday: 2:00 PM (14:00:00)
+     * - Every regular weekday (Monday - Friday): 6:00 PM (18:00:00)
      */
     public function processAutoCheckouts($organizationId = null, $userId = null)
     {
@@ -479,31 +551,33 @@ class AttendanceController extends Controller
             $user = $att->user;
             if (!$user) continue;
 
-            $shift = $user->shift;
-            $rawEndTime = $shift && $shift->end_time ? $shift->end_time : '18:00:00';
-            $rawStartTime = $shift && $shift->start_time ? $shift->start_time : '10:00:00';
-
-            $endTimeStr = strlen($rawEndTime) === 5 ? $rawEndTime . ':00' : $rawEndTime;
-            $startTimeStr = strlen($rawStartTime) === 5 ? $rawStartTime . ':00' : $rawStartTime;
-
             $attDate = Carbon::parse($att->date)->toDateString();
+            $attCarbon = Carbon::parse($att->date);
+            $isSaturday = $attCarbon->isSaturday();
+
+            // Auto checkout times:
+            // Saturday: 2:00 PM (14:00:00)
+            // Monday - Friday (non-Saturday): 6:00 PM (18:00:00)
+            if ($isSaturday) {
+                $endTimeStr = '14:00:00';
+                $autoNote = 'Auto check-out at Saturday shift end time (02:00 PM)';
+            } else {
+                $shift = $user->shift;
+                $rawEndTime = ($shift && $shift->end_time) ? $shift->end_time : '18:00:00';
+                $endTimeStr = strlen($rawEndTime) === 5 ? $rawEndTime . ':00' : $rawEndTime;
+                $autoNote = 'Auto check-out at scheduled shift end time (' . substr($endTimeStr, 0, 5) . ')';
+            }
 
             try {
-                // If overnight shift (end time < start time)
-                if ($endTimeStr < $startTimeStr) {
-                    $shiftEndDt = Carbon::parse($attDate . ' ' . $endTimeStr)->addDay();
-                } else {
-                    $shiftEndDt = Carbon::parse($attDate . ' ' . $endTimeStr);
-                }
+                $shiftEndDt = Carbon::parse($attDate . ' ' . $endTimeStr);
             } catch (\Exception $e) {
-                $shiftEndDt = Carbon::parse($attDate . ' 18:00:00');
+                $shiftEndDt = Carbon::parse($attDate . ' ' . ($isSaturday ? '14:00:00' : '18:00:00'));
             }
 
             // If current time has reached or passed the shift end time
             if ($now->greaterThanOrEqualTo($shiftEndDt)) {
                 $att->check_out = $endTimeStr;
                 $currentNotes = $att->notes ?? '';
-                $autoNote = 'Auto check-out at scheduled shift end time (' . substr($endTimeStr, 0, 5) . ')';
 
                 if (empty($currentNotes) || $currentNotes === 'On-time check-in') {
                     $att->notes = $autoNote;
@@ -517,5 +591,100 @@ class AttendanceController extends Controller
         }
 
         return $updatedCount;
+    }
+
+    /**
+     * Get organization's office geofence location and allowed radius settings.
+     */
+    public function getOfficeLocation(Request $request)
+    {
+        $user = $request->user();
+        $org = Organization::find($user->organization_id);
+        $settings = $org->settings ?? [];
+        $officeLocation = $settings['office_location'] ?? [
+            'enabled' => true,
+            'name' => 'Main Office Headquarters',
+            'latitude' => 19.0657,
+            'longitude' => 72.8687,
+            'radius_meters' => 300,
+            'address' => 'Bandra Kurla Complex, Mumbai, Maharashtra 400051',
+        ];
+
+        return response()->json([
+            'office_location' => $officeLocation,
+        ]);
+    }
+
+    /**
+     * Update organization's office geofence coordinates and allowed radius.
+     * Restricted: Only Admin or HR.
+     */
+    public function updateOfficeLocation(Request $request)
+    {
+        $actor = $request->user();
+        $roleName = strtolower($actor->role->name ?? $actor->role ?? 'employee');
+        if (method_exists($actor, 'getCanonicalRole')) {
+            $roleName = $actor->getCanonicalRole();
+        }
+
+        if (!in_array($roleName, ['admin', 'hr'])) {
+            return response()->json(['message' => 'Unauthorized: Only Admin or HR can configure office location and geofencing.'], 403);
+        }
+
+        $request->validate([
+            'enabled' => 'sometimes|boolean',
+            'name' => 'required|string',
+            'latitude' => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
+            'radius_meters' => 'required|integer|min:20|max:10000',
+            'address' => 'nullable|string',
+        ]);
+
+        $org = Organization::find($actor->organization_id);
+        $settings = $org->settings ?? [];
+        $settings['office_location'] = [
+            'enabled' => $request->has('enabled') ? (bool) $request->enabled : true,
+            'name' => $request->name,
+            'latitude' => floatval($request->latitude),
+            'longitude' => floatval($request->longitude),
+            'radius_meters' => intval($request->radius_meters),
+            'address' => $request->address ?: '',
+        ];
+
+        $org->settings = $settings;
+        $org->save();
+
+        AuditLog::create([
+            'organization_id' => $actor->organization_id,
+            'actor_id' => $actor->id,
+            'action' => 'office_geofence_updated',
+            'target_type' => Organization::class,
+            'target_id' => $org->id,
+            'payload' => $settings['office_location'],
+        ]);
+
+        return response()->json([
+            'message' => 'Office geofence location and radius updated successfully.',
+            'office_location' => $settings['office_location'],
+        ]);
+    }
+
+    /**
+     * Calculate distance between two GPS coordinates in meters using the Haversine formula.
+     */
+    private function calculateDistanceMeters($lat1, $lon1, $lat2, $lon2): float
+    {
+        $earthRadius = 6371000; // in meters
+
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+
+        $a = sin($dLat / 2) * sin($dLat / 2) +
+             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+             sin($dLon / 2) * sin($dLon / 2);
+
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+        return $earthRadius * $c;
     }
 }

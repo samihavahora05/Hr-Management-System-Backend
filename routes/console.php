@@ -11,8 +11,8 @@ Artisan::command('inspire', function () {
 
 Artisan::command('attendance:auto-checkout', function () {
     $count = (new AttendanceController)->processAutoCheckouts();
-    $this->info("Auto checked out {$count} pending attendance record(s) based on scheduled shift timings.");
-})->purpose('Automatically check out employees past their assigned shift end time');
+    $this->info("Auto checked out {$count} pending attendance record(s) (6:00 PM Mon-Fri, 2:00 PM Saturdays).");
+})->purpose('Automatically check out employees (6:00 PM weekdays, 2:00 PM Saturdays)');
 
 Schedule::call(function () {
     (new AttendanceController)->processAutoCheckouts();

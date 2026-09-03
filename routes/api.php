@@ -24,12 +24,14 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\PayrollController;
+use App\Http\Controllers\MonthlyAttendanceReportController;
 use App\Http\Middleware\TokenAuthMiddleware;
 use App\Models\Organization;
 use Illuminate\Http\Request;
 
-// Public Auth Routes (Rate limited to 10 attempts per minute)
+// Public Auth & Branding Routes
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+Route::get('/organization/branding', [AdminController::class, 'getBranding']);
 
 // Authenticated Routes
 Route::middleware(TokenAuthMiddleware::class)->group(function () {
@@ -99,6 +101,8 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::post('/attendance/correction/{id}', [AttendanceController::class, 'adminCorrection'])->middleware('role:admin,hr');
     Route::post('/attendance/update-schedule', [AttendanceController::class, 'updateSchedule'])->middleware('role:admin,hr');
     Route::get('/attendance/schedule', [AttendanceController::class, 'getSchedule']);
+    Route::get('/attendance/office-location', [AttendanceController::class, 'getOfficeLocation']);
+    Route::post('/attendance/office-location', [AttendanceController::class, 'updateOfficeLocation'])->middleware('role:admin,hr');
 
     // Leave
     Route::get('/leave/types', [LeaveController::class, 'getLeaveTypes']);
@@ -179,6 +183,11 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::get('/reports/attendance-trends', [ReportController::class, 'attendanceTrendReport'])->middleware('role:admin,hr');
     Route::get('/reports/leave-usage', [ReportController::class, 'leaveUsageReport'])->middleware('role:admin,hr');
     Route::get('/reports/recruitment', [ReportController::class, 'recruitmentReport'])->middleware('role:admin,hr');
+    Route::get('/reports/monthly-attendance', [MonthlyAttendanceReportController::class, 'generate'])->middleware('role:admin');
+    Route::post('/reports/monthly-attendance/store', [MonthlyAttendanceReportController::class, 'store'])->middleware('role:admin');
+    Route::get('/reports/monthly-attendance/stored', [MonthlyAttendanceReportController::class, 'storedList'])->middleware('role:admin');
+    Route::get('/reports/monthly-attendance/stored/{id}', [MonthlyAttendanceReportController::class, 'showStored'])->middleware('role:admin');
+    Route::delete('/reports/monthly-attendance/stored/{id}', [MonthlyAttendanceReportController::class, 'destroyStored'])->middleware('role:admin');
 
     // Document Vault & Daily Work Reports
     Route::get('/documents', [DocumentController::class, 'index']);
@@ -224,6 +233,7 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     // Organization Settings
     Route::get('/settings/organization', [AdminController::class, 'getOrganization'])->middleware('role:admin');
     Route::put('/settings/organization', [AdminController::class, 'updateOrganization'])->middleware('role:admin');
+    Route::post('/settings/organization/logo', [AdminController::class, 'updateLogo'])->middleware('role:admin');
 
     // Role-Aware AI / Organization Assistant
     Route::post('/assistant/ask', [AssistantController::class, 'ask']);

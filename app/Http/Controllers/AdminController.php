@@ -297,4 +297,84 @@ class AdminController extends Controller
             'organization' => $org
         ]);
     }
+
+    /**
+     * Public branding endpoint (for login page & unauthenticated portal previews)
+     */
+    public function getBranding(Request $request)
+    {
+        $org = Organization::first();
+        $settings = $org ? ($org->settings ?? []) : [];
+
+        return response()->json([
+            'organization_name' => $org ? $org->name : 'Blueboxx HRMS',
+            'organization_code' => $org ? $org->code : 'BLUEBOXX',
+            'logo_url' => $settings['logo_url'] ?? '/images/logoblue.png',
+            'icon_logo_url' => $settings['icon_logo_url'] ?? '/images/Boxxlogo.png',
+        ]);
+    }
+
+    /**
+     * Update organization logo / branding
+     * Restricted: Only Admin
+     */
+    public function updateLogo(Request $request)
+    {
+        $admin = $request->user();
+        $org = Organization::find($admin->organization_id);
+
+        if (!$org) {
+            return response()->json(['message' => 'Organization not found'], 404);
+        }
+
+        $request->validate([
+            'logo' => 'nullable|string', // Base64 data URI or image URL
+            'icon_logo' => 'nullable|string',
+            'logo_file' => 'nullable|image|max:5120', // Up to 5MB image
+            'icon_file' => 'nullable|image|max:5120',
+        ]);
+
+        $settings = $org->settings ?? [];
+
+        // Convert uploaded file to base64 data URI for zero-dependency portability
+        if ($request->hasFile('logo_file')) {
+            $file = $request->file('logo_file');
+            $data = file_get_contents($file->getRealPath());
+            $mime = $file->getMimeType();
+            $settings['logo_url'] = 'data:' . $mime . ';base64,' . base64_encode($data);
+        } elseif ($request->filled('logo')) {
+            $settings['logo_url'] = $request->logo;
+        }
+
+        if ($request->hasFile('icon_file')) {
+            $file = $request->file('icon_file');
+            $data = file_get_contents($file->getRealPath());
+            $mime = $file->getMimeType();
+            $settings['icon_logo_url'] = 'data:' . $mime . ';base64,' . base64_encode($data);
+        } elseif ($request->filled('icon_logo')) {
+            $settings['icon_logo_url'] = $request->icon_logo;
+        }
+
+        $org->settings = $settings;
+        $org->save();
+
+        AuditLog::create([
+            'organization_id' => $admin->organization_id,
+            'actor_id' => $admin->id,
+            'action' => 'organization_logo_updated',
+            'target_type' => Organization::class,
+            'target_id' => $org->id,
+            'payload' => [
+                'has_logo' => !empty($settings['logo_url']),
+                'has_icon' => !empty($settings['icon_logo_url']),
+            ],
+        ]);
+
+        return response()->json([
+            'message' => 'Organization logo updated successfully! It will now be visible to all users.',
+            'logo_url' => $settings['logo_url'] ?? '/images/logoblue.png',
+            'icon_logo_url' => $settings['icon_logo_url'] ?? '/images/Boxxlogo.png',
+            'organization' => $org,
+        ]);
+    }
 }
