@@ -4,7 +4,11 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
 
 Route::get('/', function () {
-    return view('welcome');
+    return response()->json([
+        'status' => 'active',
+        'service' => 'Blueboxx HRMS Enterprise API',
+        'version' => 'v4.2',
+    ]);
 });
 
 Route::get('/setup-db', function () {
@@ -24,6 +28,10 @@ Route::get('/setup-db', function () {
     }
 });
 
+// Support API endpoints directly on root (e.g. /auth/login as well as /api/auth/login)
+require __DIR__.'/api.php';
+
+// Catch-all preflight OPTIONS
 Route::options('{any}', function () {
     return response('', 200);
 })->where('any', '.*');
