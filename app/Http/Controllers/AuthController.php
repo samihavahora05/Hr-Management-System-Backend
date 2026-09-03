@@ -37,6 +37,9 @@ class AuthController extends Controller
         $user->remember_token = $token;
         $user->save();
 
+        // Automatically process shift auto-checkouts (6:00 PM Mon-Fri, 2:00 PM Sat)
+        app(AttendanceController::class)->processAutoCheckouts($user->organization_id, $user->id);
+
         // Log audit action
         AuditLog::create([
             'organization_id' => $user->organization_id,
@@ -79,6 +82,8 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $user = $request->user()->load(['role', 'organization', 'manager']);
+        // Automatically process shift auto-checkouts (6:00 PM Mon-Fri, 2:00 PM Sat)
+        app(AttendanceController::class)->processAutoCheckouts($user->organization_id, $user->id);
         $formattedJoiningDate = $user->joining_date ? Carbon::parse($user->joining_date)->format('Y-m-d') : null;
 
         return response()->json([

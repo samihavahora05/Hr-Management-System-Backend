@@ -157,6 +157,9 @@ class AttendanceController extends Controller
     {
         $user = $request->user();
 
+        // Process any pending auto-checkouts before checking out
+        $this->processAutoCheckouts($user->organization_id, $user->id);
+
         $attendance = Attendance::where('organization_id', $user->organization_id)
             ->where('user_id', $user->id)
             ->whereDate('date', Carbon::today())
@@ -169,18 +172,41 @@ class AttendanceController extends Controller
         }
 
         if ($attendance->check_out) {
+            $formattedTime = substr($attendance->check_out, 0, 5);
+            $isAuto = $attendance->notes && (str_contains($attendance->notes, 'Auto check-out') || str_contains($attendance->notes, 'Auto clocked out'));
             return response()->json([
-                'message' => 'You have already checked out today at ' . $attendance->check_out,
+                'message' => 'You have already checked out today at ' . $formattedTime . ($isAuto ? ' (Auto checked out at shift end).' : '.'),
                 'attendance' => $attendance
             ], 400);
         }
 
+        $isSaturday = Carbon::today()->isSaturday();
+        $cutoffTime = $isSaturday ? '14:00:00' : '18:00:00';
+        if ($user->shift && !$isSaturday && $user->shift->end_time) {
+            $cutoffTime = strlen($user->shift->end_time) === 5 ? $user->shift->end_time . ':00' : $user->shift->end_time;
+        }
+
         $nowTime = $request->time ? $request->time : Carbon::now()->format('H:i:s');
+
+        // If clocking out at or past shift end (e.g. past 6:00 PM / Sat 2:00 PM)
+        if ($nowTime >= $cutoffTime) {
+            $attendance->check_out = $cutoffTime;
+            $autoNote = $isSaturday ? 'Auto check-out at Saturday shift end time (02:00 PM)' : 'Auto check-out at scheduled shift end time (' . substr($cutoffTime, 0, 5) . ')';
+            $currentNotes = $attendance->notes ?? '';
+            $attendance->notes = empty($currentNotes) ? $autoNote : (str_contains($currentNotes, 'Auto check-out') ? $currentNotes : $currentNotes . ' | ' . $autoNote);
+            $attendance->save();
+
+            return response()->json([
+                'message' => 'Shift ended at ' . substr($cutoffTime, 0, 5) . '. Automatically clocked out.',
+                'attendance' => $attendance
+            ]);
+        }
+
         $attendance->check_out = $nowTime;
         $attendance->save();
 
         return response()->json([
-            'message' => 'Checked out successfully at ' . $nowTime,
+            'message' => 'Checked out successfully at ' . substr($nowTime, 0, 5),
             'attendance' => $attendance
         ]);
     }
@@ -574,8 +600,9 @@ class AttendanceController extends Controller
                 $shiftEndDt = Carbon::parse($attDate . ' ' . ($isSaturday ? '14:00:00' : '18:00:00'));
             }
 
-            // If current time has reached or passed the shift end time
-            if ($now->greaterThanOrEqualTo($shiftEndDt)) {
+            $todayStr = Carbon::today()->toDateString();
+            // If current time has reached or passed the shift end time, or if attendance was from a previous day
+            if ($attDate < $todayStr || $now->greaterThanOrEqualTo($shiftEndDt)) {
                 $att->check_out = $endTimeStr;
                 $currentNotes = $att->notes ?? '';
 
