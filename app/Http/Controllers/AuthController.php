@@ -19,7 +19,7 @@ class AuthController extends Controller
             'password' => 'required',
         ]);
 
-        $user = User::where('email', $request->email)->with(['role', 'organization', 'manager'])->first();
+        $user = User::where('email', $request->email)->with(['role', 'organization', 'manager', 'shift'])->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
@@ -36,6 +36,9 @@ class AuthController extends Controller
         $token = $user->createToken('auth_token')->plainTextToken;
         $user->remember_token = $token;
         $user->save();
+
+        // Automatically process shift auto-checkouts (using employee-specific shift end time)
+        app(AttendanceController::class)->processAutoCheckouts($user->organization_id, $user->id);
 
         // Log audit action
         AuditLog::create([
@@ -72,13 +75,17 @@ class AuthController extends Controller
                 'organization_icon_logo' => $user->organization?->settings['icon_logo_url'] ?? '/images/Boxxlogo.png',
                 'manager_name' => $user->manager ? $user->manager->name : null,
                 'manager_id' => $user->manager_id,
+                'shift_id' => $user->shift_id,
+                'shift' => $user->shift,
             ]
         ]);
     }
 
     public function me(Request $request)
     {
-        $user = $request->user()->load(['role', 'organization', 'manager']);
+        $user = $request->user()->load(['role', 'organization', 'manager', 'shift']);
+        // Automatically process shift auto-checkouts (using employee-specific shift end time)
+        app(AttendanceController::class)->processAutoCheckouts($user->organization_id, $user->id);
         $formattedJoiningDate = $user->joining_date ? Carbon::parse($user->joining_date)->format('Y-m-d') : null;
 
         return response()->json([
@@ -102,6 +109,8 @@ class AuthController extends Controller
                 'organization_icon_logo' => $user->organization?->settings['icon_logo_url'] ?? '/images/Boxxlogo.png',
                 'manager_name' => $user->manager ? $user->manager->name : null,
                 'manager_id' => $user->manager_id,
+                'shift_id' => $user->shift_id,
+                'shift' => $user->shift,
             ]
         ]);
     }

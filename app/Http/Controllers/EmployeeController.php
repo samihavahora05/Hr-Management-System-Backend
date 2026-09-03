@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Role;
+use App\Models\Shift;
 use App\Models\EmployeeDocument;
 use App\Models\LeaveType;
 use App\Models\LeaveBalance;
 use App\Models\AuditLog;
 use App\Services\NotificationService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
@@ -20,7 +22,7 @@ class EmployeeController extends Controller
         $roleName = strtolower($user->role->name ?? 'employee');
 
         $query = User::where('organization_id', $user->organization_id)
-            ->with(['role', 'manager']);
+            ->with(['role', 'manager', 'shift']);
 
         // Scoping based on explicit role
         if ($roleName === 'employee') {
@@ -106,6 +108,33 @@ class EmployeeController extends Controller
 
         $plainPassword = $request->filled('password') ? $request->password : 'password123';
 
+        $shiftId = $request->shift_id ? (int) $request->shift_id : null;
+        if ($request->filled('shift_start_time') && $request->filled('shift_end_time')) {
+            $startTime = strlen($request->shift_start_time) === 5 ? $request->shift_start_time . ':00' : $request->shift_start_time;
+            $endTime = strlen($request->shift_end_time) === 5 ? $request->shift_end_time . ':00' : $request->shift_end_time;
+            $graceMins = $request->shift_grace_period ? (int) $request->shift_grace_period : 15;
+
+            $shift = Shift::where('organization_id', $actor->organization_id)
+                ->where('start_time', $startTime)
+                ->where('end_time', $endTime)
+                ->first();
+
+            if (!$shift) {
+                $startFmt = Carbon::createFromFormat('H:i:s', $startTime)->format('h:i A');
+                $endFmt = Carbon::createFromFormat('H:i:s', $endTime)->format('h:i A');
+                $shiftName = $request->shift_name ?: "Custom Timing ({$startFmt} - {$endFmt})";
+                $shift = Shift::create([
+                    'organization_id' => $actor->organization_id,
+                    'name' => $shiftName,
+                    'start_time' => $startTime,
+                    'end_time' => $endTime,
+                    'grace_period_minutes' => $graceMins,
+                    'work_days' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+                ]);
+            }
+            $shiftId = $shift->id;
+        }
+
         $employee = User::create([
             'organization_id' => $actor->organization_id,
             'role_id' => $role ? $role->id : null,
@@ -120,7 +149,7 @@ class EmployeeController extends Controller
             'phone' => $request->phone,
             'base_salary' => $request->base_salary,
             'manager_id' => $request->manager_id,
-            'shift_id' => $request->shift_id,
+            'shift_id' => $shiftId,
             'probation_status' => 'probation',
         ]);
 
@@ -290,7 +319,31 @@ class EmployeeController extends Controller
             $employee->manager_id = $request->manager_id ? (int) $request->manager_id : null;
         }
 
-        if ($request->has('shift_id')) {
+        if ($request->filled('shift_start_time') && $request->filled('shift_end_time')) {
+            $startTime = strlen($request->shift_start_time) === 5 ? $request->shift_start_time . ':00' : $request->shift_start_time;
+            $endTime = strlen($request->shift_end_time) === 5 ? $request->shift_end_time . ':00' : $request->shift_end_time;
+            $graceMins = $request->shift_grace_period ? (int) $request->shift_grace_period : 15;
+
+            $shift = Shift::where('organization_id', $actor->organization_id)
+                ->where('start_time', $startTime)
+                ->where('end_time', $endTime)
+                ->first();
+
+            if (!$shift) {
+                $startFmt = Carbon::createFromFormat('H:i:s', $startTime)->format('h:i A');
+                $endFmt = Carbon::createFromFormat('H:i:s', $endTime)->format('h:i A');
+                $shiftName = $request->shift_name ?: "Custom Timing ({$startFmt} - {$endFmt})";
+                $shift = Shift::create([
+                    'organization_id' => $actor->organization_id,
+                    'name' => $shiftName,
+                    'start_time' => $startTime,
+                    'end_time' => $endTime,
+                    'grace_period_minutes' => $graceMins,
+                    'work_days' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+                ]);
+            }
+            $employee->shift_id = $shift->id;
+        } elseif ($request->has('shift_id')) {
             $employee->shift_id = $request->shift_id ? (int) $request->shift_id : null;
         }
 
@@ -308,7 +361,7 @@ class EmployeeController extends Controller
 
         return response()->json([
             'message' => 'Employee updated successfully',
-            'employee' => $employee->load(['role', 'manager'])
+            'employee' => $employee->load(['role', 'manager', 'shift'])
         ]);
     }
 

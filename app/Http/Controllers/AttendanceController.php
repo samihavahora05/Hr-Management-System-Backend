@@ -24,9 +24,31 @@ class AttendanceController extends Controller
             ->first();
 
         if ($existing && $existing->check_in) {
+            $formattedIn = substr($existing->check_in, 0, 5);
+            $formattedOut = $existing->check_out ? substr($existing->check_out, 0, 5) : null;
+            if ($existing->check_out) {
+                return response()->json([
+                    'message' => 'Attendance completed for today (Checked in at ' . $formattedIn . ', Checked out at ' . $formattedOut . '). You cannot check in again today.',
+                    'attendance' => $existing
+                ], 400);
+            }
             return response()->json([
-                'message' => 'You have already checked in today at ' . $existing->check_in,
+                'message' => 'You have already checked in today at ' . $formattedIn,
                 'attendance' => $existing
+            ], 400);
+        }
+
+        // Check if shift has already ended for today
+        $isSaturday = Carbon::today()->isSaturday();
+        $cutoffTime = $isSaturday ? '14:00:00' : '18:00:00';
+        if ($user->shift && !$isSaturday && $user->shift->end_time) {
+            $cutoffTime = strlen($user->shift->end_time) === 5 ? $user->shift->end_time . ':00' : $user->shift->end_time;
+        }
+
+        $nowTime = Carbon::now()->format('H:i:s');
+        if ($nowTime >= $cutoffTime) {
+            return response()->json([
+                'message' => 'Check-in closed: Your shift ended at ' . substr($cutoffTime, 0, 5) . '. Check-in is closed for today.',
             ], 400);
         }
 
@@ -35,18 +57,20 @@ class AttendanceController extends Controller
         $settings = $org->settings ?? [];
         $officeLocation = $settings['office_location'] ?? null;
 
-        if (!$officeLocation) {
+        if (!$officeLocation || (isset($officeLocation['latitude']) && abs(floatval($officeLocation['latitude']) - 19.0657) < 0.001) || empty($officeLocation['radius_meters']) || $officeLocation['radius_meters'] < 2000) {
             $officeLocation = [
-                'enabled' => true,
-                'name' => 'Main Office Headquarters',
-                'latitude' => 19.0657,
-                'longitude' => 72.8687,
-                'radius_meters' => 300,
-                'address' => 'Bandra Kurla Complex, Mumbai, Maharashtra 400051',
+                'enabled' => $officeLocation['enabled'] ?? true,
+                'name' => $officeLocation['name'] ?? 'Main Office Headquarters',
+                'latitude' => 22.2955,
+                'longitude' => 73.1764,
+                'radius_meters' => 2000,
+                'address' => 'SF 02, INDIA BULLS MEGA MALL, Dinesh Mill Rd, near Swami Vivekananda Railway Over Bridge, Anand Nagar, Akota, Vadodara, Gujarat 390022',
             ];
             $settings['office_location'] = $officeLocation;
-            $org->settings = $settings;
-            $org->save();
+            if ($org) {
+                $org->settings = $settings;
+                $org->save();
+            }
         }
 
         $locationVerifiedNote = '';
@@ -66,9 +90,9 @@ class AttendanceController extends Controller
                 ], 422);
             }
 
-            $officeLat = floatval($officeLocation['latitude'] ?? 19.0657);
-            $officeLng = floatval($officeLocation['longitude'] ?? 72.8687);
-            $allowedRadius = floatval($officeLocation['radius_meters'] ?? 300);
+            $officeLat = floatval($officeLocation['latitude'] ?? 22.2955);
+            $officeLng = floatval($officeLocation['longitude'] ?? 73.1764);
+            $allowedRadius = floatval($officeLocation['radius_meters'] ?? 2000);
 
             $distanceMeters = $this->calculateDistanceMeters($empLat, $empLng, $officeLat, $officeLng);
 
@@ -157,6 +181,9 @@ class AttendanceController extends Controller
     {
         $user = $request->user();
 
+        // Process any pending auto-checkouts before checking out
+        $this->processAutoCheckouts($user->organization_id, $user->id);
+
         $attendance = Attendance::where('organization_id', $user->organization_id)
             ->where('user_id', $user->id)
             ->whereDate('date', Carbon::today())
@@ -169,18 +196,41 @@ class AttendanceController extends Controller
         }
 
         if ($attendance->check_out) {
+            $formattedTime = substr($attendance->check_out, 0, 5);
+            $isAuto = $attendance->notes && (str_contains($attendance->notes, 'Auto check-out') || str_contains($attendance->notes, 'Auto clocked out'));
             return response()->json([
-                'message' => 'You have already checked out today at ' . $attendance->check_out,
+                'message' => 'You have already checked out today at ' . $formattedTime . ($isAuto ? ' (Auto checked out at shift end).' : '.'),
                 'attendance' => $attendance
             ], 400);
         }
 
+        $isSaturday = Carbon::today()->isSaturday();
+        $cutoffTime = $isSaturday ? '14:00:00' : '18:00:00';
+        if ($user->shift && !$isSaturday && $user->shift->end_time) {
+            $cutoffTime = strlen($user->shift->end_time) === 5 ? $user->shift->end_time . ':00' : $user->shift->end_time;
+        }
+
         $nowTime = $request->time ? $request->time : Carbon::now()->format('H:i:s');
+
+        // If clocking out at or past shift end (e.g. past 6:00 PM / Sat 2:00 PM)
+        if ($nowTime >= $cutoffTime) {
+            $attendance->check_out = $cutoffTime;
+            $autoNote = $isSaturday ? 'Auto check-out at Saturday shift end time (02:00 PM)' : 'Auto check-out at scheduled shift end time (' . substr($cutoffTime, 0, 5) . ')';
+            $currentNotes = $attendance->notes ?? '';
+            $attendance->notes = empty($currentNotes) ? $autoNote : (str_contains($currentNotes, 'Auto check-out') ? $currentNotes : $currentNotes . ' | ' . $autoNote);
+            $attendance->save();
+
+            return response()->json([
+                'message' => 'Shift ended at ' . substr($cutoffTime, 0, 5) . '. Automatically clocked out.',
+                'attendance' => $attendance
+            ]);
+        }
+
         $attendance->check_out = $nowTime;
         $attendance->save();
 
         return response()->json([
-            'message' => 'Checked out successfully at ' . $nowTime,
+            'message' => 'Checked out successfully at ' . substr($nowTime, 0, 5),
             'attendance' => $attendance
         ]);
     }
@@ -444,7 +494,8 @@ class AttendanceController extends Controller
         $user->load('shift');
 
         $isSaturday = Carbon::today()->isSaturday();
-        $todayAutoCheckout = $isSaturday ? '14:00:00' : '18:00:00';
+        $shiftEndTime = ($user->shift && $user->shift->end_time) ? $user->shift->end_time : '18:00:00';
+        $todayAutoCheckout = $isSaturday ? '14:00:00' : $shiftEndTime;
 
         if ($user->shift) {
             return response()->json([
@@ -574,8 +625,9 @@ class AttendanceController extends Controller
                 $shiftEndDt = Carbon::parse($attDate . ' ' . ($isSaturday ? '14:00:00' : '18:00:00'));
             }
 
-            // If current time has reached or passed the shift end time
-            if ($now->greaterThanOrEqualTo($shiftEndDt)) {
+            $todayStr = Carbon::today()->toDateString();
+            // If current time has reached or passed the shift end time, or if attendance was from a previous day
+            if ($attDate < $todayStr || $now->greaterThanOrEqualTo($shiftEndDt)) {
                 $att->check_out = $endTimeStr;
                 $currentNotes = $att->notes ?? '';
 
@@ -601,14 +653,23 @@ class AttendanceController extends Controller
         $user = $request->user();
         $org = Organization::find($user->organization_id);
         $settings = $org->settings ?? [];
-        $officeLocation = $settings['office_location'] ?? [
-            'enabled' => true,
-            'name' => 'Main Office Headquarters',
-            'latitude' => 19.0657,
-            'longitude' => 72.8687,
-            'radius_meters' => 300,
-            'address' => 'Bandra Kurla Complex, Mumbai, Maharashtra 400051',
-        ];
+        $officeLocation = $settings['office_location'] ?? null;
+
+        if (!$officeLocation || (isset($officeLocation['latitude']) && abs(floatval($officeLocation['latitude']) - 19.0657) < 0.001) || empty($officeLocation['radius_meters']) || $officeLocation['radius_meters'] < 2000) {
+            $officeLocation = [
+                'enabled' => $officeLocation['enabled'] ?? true,
+                'name' => $officeLocation['name'] ?? 'Main Office Headquarters',
+                'latitude' => 22.2955,
+                'longitude' => 73.1764,
+                'radius_meters' => 2000,
+                'address' => 'SF 02, INDIA BULLS MEGA MALL, Dinesh Mill Rd, near Swami Vivekananda Railway Over Bridge, Anand Nagar, Akota, Vadodara, Gujarat 390022',
+            ];
+            if ($org) {
+                $settings['office_location'] = $officeLocation;
+                $org->settings = $settings;
+                $org->save();
+            }
+        }
 
         return response()->json([
             'office_location' => $officeLocation,

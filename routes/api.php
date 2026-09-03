@@ -25,6 +25,8 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\MonthlyAttendanceReportController;
+use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\ClientController;
 use App\Http\Middleware\TokenAuthMiddleware;
 use App\Models\Organization;
 use Illuminate\Http\Request;
@@ -81,6 +83,16 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
         ]);
         $shift->update($request->only(['name', 'start_time', 'end_time', 'grace_period_minutes']));
         return response()->json(['message' => 'Shift timing updated successfully', 'shift' => $shift]);
+    });
+    Route::delete('/shifts/{id}', function (\Illuminate\Http\Request $request, $id) {
+        $user = $request->user();
+        $shift = \App\Models\Shift::where('organization_id', $user->organization_id)->where('id', $id)->first();
+        if (!$shift) {
+            return response()->json(['message' => 'Shift not found'], 404);
+        }
+        \App\Models\User::where('shift_id', $id)->update(['shift_id' => null]);
+        $shift->delete();
+        return response()->json(['message' => 'Shift deleted successfully']);
     });
 
     // Employee Profile & Master Record
@@ -235,9 +247,20 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::put('/settings/organization', [AdminController::class, 'updateOrganization'])->middleware('role:admin');
     Route::post('/settings/organization/logo', [AdminController::class, 'updateLogo'])->middleware('role:admin');
 
-    // Role-Aware AI / Organization Assistant
-    Route::post('/assistant/ask', [AssistantController::class, 'ask']);
-    Route::post('/assistant/execute', [AssistantController::class, 'executeAction']);
+    // Invoices & Client Billing Management (Admin Access)
+    Route::get('/clients', [ClientController::class, 'index'])->middleware('role:admin');
+    Route::post('/clients', [ClientController::class, 'store'])->middleware('role:admin');
+    Route::get('/clients/{id}', [ClientController::class, 'show'])->middleware('role:admin');
+    Route::put('/clients/{id}', [ClientController::class, 'update'])->middleware('role:admin');
+    Route::delete('/clients/{id}', [ClientController::class, 'destroy'])->middleware('role:admin');
+
+    Route::get('/invoices', [InvoiceController::class, 'index'])->middleware('role:admin');
+    Route::get('/invoices/next-number', [InvoiceController::class, 'getNextNumber'])->middleware('role:admin');
+    Route::post('/invoices', [InvoiceController::class, 'store'])->middleware('role:admin');
+    Route::get('/invoices/{id}', [InvoiceController::class, 'show'])->middleware('role:admin');
+    Route::put('/invoices/{id}', [InvoiceController::class, 'update'])->middleware('role:admin');
+    Route::delete('/invoices/{id}', [InvoiceController::class, 'destroy'])->middleware('role:admin');
+    Route::post('/invoices/{id}/payments', [InvoiceController::class, 'recordPayment'])->middleware('role:admin');
 });
 
 // Preflight OPTIONS catch-all
