@@ -148,6 +148,50 @@ class AuthController extends Controller
         return response()->json(['message' => 'Password updated successfully']);
     }
 
+    public function forgotPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required|string|min:8|confirmed',
+        ], [
+            'password.confirmed' => 'The new password and confirmation password do not match.',
+            'password.min' => 'The new password must be at least 8 characters long.',
+        ]);
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'No account found with this email address.'
+            ], 404);
+        }
+
+        if ($user->status !== 'active') {
+            return response()->json([
+                'message' => 'Your account is inactive. Please contact HR.'
+            ], 403);
+        }
+
+        $user->password = Hash::make($request->password);
+        $user->save();
+
+        AuditLog::create([
+            'organization_id' => $user->organization_id,
+            'actor_id' => $user->id,
+            'action' => 'forgot_password_reset',
+            'target_type' => User::class,
+            'target_id' => $user->id,
+            'payload' => [
+                'email' => $user->email,
+                'ip' => $request->ip()
+            ],
+        ]);
+
+        return response()->json([
+            'message' => 'Password reset successfully. You can now log in with your new password.'
+        ], 200);
+    }
+
     public function updateProfile(Request $request)
     {
         $user = $request->user();

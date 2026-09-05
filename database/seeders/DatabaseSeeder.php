@@ -109,8 +109,8 @@ class DatabaseSeeder extends Seeder
         $empRole = Role::create(['name' => 'employee', 'display_name' => 'Employee', 'description' => 'Self-service portal and task execution']);
 
         // 4. Create Seed Users for Master Employee Record
-        $password = Hash::make('password123');
-        $adminPassword = Hash::make('Blueboxx@2026');
+        $defaultPassword = Hash::make('Blueboxx@2026');
+        $adminPassword = $defaultPassword;
 
         $admin = User::create([
             'organization_id' => $org->id,
@@ -143,7 +143,7 @@ class DatabaseSeeder extends Seeder
             'shift_id' => $generalShift->id,
             'name' => 'Neha Sharma',
             'email' => 'hr@blueboxx.com',
-            'password' => $password,
+            'password' => $defaultPassword,
             'employee_code' => 'EMP002',
             'department' => 'Human Resources',
             'designation' => 'HR Operations Lead',
@@ -167,7 +167,7 @@ class DatabaseSeeder extends Seeder
             'shift_id' => $generalShift->id,
             'name' => 'Rajesh Kumar',
             'email' => 'manager@blueboxx.com',
-            'password' => $password,
+            'password' => $defaultPassword,
             'employee_code' => 'EMP003',
             'department' => 'Engineering',
             'designation' => 'Company Engineering Manager',
@@ -191,7 +191,7 @@ class DatabaseSeeder extends Seeder
             'shift_id' => $generalShift->id,
             'name' => 'Vikram Singh',
             'email' => 'teamlead@blueboxx.com',
-            'password' => $password,
+            'password' => $defaultPassword,
             'employee_code' => 'EMP007',
             'department' => 'Engineering',
             'designation' => 'Frontend Team Leader',
@@ -215,7 +215,7 @@ class DatabaseSeeder extends Seeder
             'shift_id' => $generalShift->id,
             'name' => 'Aarav Patel',
             'email' => 'employee@blueboxx.com',
-            'password' => $password,
+            'password' => $defaultPassword,
             'employee_code' => 'EMP004',
             'department' => 'Engineering',
             'designation' => 'Senior Frontend Developer',
@@ -239,7 +239,7 @@ class DatabaseSeeder extends Seeder
             'shift_id' => $generalShift->id,
             'name' => 'Priya Verma',
             'email' => 'priya@blueboxx.com',
-            'password' => $password,
+            'password' => $defaultPassword,
             'employee_code' => 'EMP005',
             'department' => 'Engineering',
             'designation' => 'UI/UX Designer',
@@ -263,7 +263,7 @@ class DatabaseSeeder extends Seeder
             'shift_id' => $generalShift->id,
             'name' => 'Rohan Mehta',
             'email' => 'rohan@blueboxx.com',
-            'password' => $password,
+            'password' => $defaultPassword,
             'employee_code' => 'EMP006',
             'department' => 'Human Resources',
             'designation' => 'HR Operations Assistant',
