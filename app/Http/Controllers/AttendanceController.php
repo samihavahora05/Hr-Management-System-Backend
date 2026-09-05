@@ -14,6 +14,11 @@ class AttendanceController extends Controller
     public function checkIn(Request $request)
     {
         $user = $request->user();
+        $roleName = strtolower($user->role->name ?? $user->role ?? 'employee');
+        if (method_exists($user, 'getCanonicalRole')) {
+            $roleName = $user->getCanonicalRole();
+        }
+        $isAdminOrHR = in_array($roleName, ['admin', 'hr']);
 
         // Auto check-out any previous open attendance records
         $this->processAutoCheckouts($user->organization_id, $user->id);
@@ -38,23 +43,26 @@ class AttendanceController extends Controller
             ], 400);
         }
 
-        // Check if shift has already ended for today
-        $isSaturday = Carbon::today()->isSaturday();
-        $cutoffTime = $isSaturday ? '14:00:00' : '18:00:00';
-        if ($user->shift && !$isSaturday && $user->shift->end_time) {
-            $cutoffTime = strlen($user->shift->end_time) === 5 ? $user->shift->end_time . ':00' : $user->shift->end_time;
-        }
+        // Check if shift has already ended for today (exempt admin/hr for testing/remote override)
+        if (!$isAdminOrHR) {
+            $isSaturday = Carbon::today()->isSaturday();
+            $cutoffTime = $isSaturday ? '14:00:00' : '18:00:00';
+            if ($user->shift && !$isSaturday && $user->shift->end_time) {
+                $cutoffTime = strlen($user->shift->end_time) === 5 ? $user->shift->end_time . ':00' : $user->shift->end_time;
+            }
 
-        $nowTime = Carbon::now()->format('H:i:s');
-        if ($nowTime >= $cutoffTime) {
-            return response()->json([
-                'message' => 'Check-in closed: Your shift ended at ' . substr($cutoffTime, 0, 5) . '. Check-in is closed for today.',
-            ], 400);
+            $nowTime = $request->time ? $request->time : Carbon::now()->format('H:i:s');
+            if ($nowTime >= $cutoffTime) {
+                return response()->json([
+                    'message' => 'Check-in closed: Your shift ended at ' . substr($cutoffTime, 0, 5) . '. Check-in is closed for today.',
+                ], 400);
+            }
         }
 
         // Office Location Geofence Verification: Clock-in only permitted if employee is at office place (within 500m)
         $org = Organization::find($user->organization_id);
         $settings = $org->settings ?? [];
+        $officeLocation = $settings['office_location'] ?? null;
         if (!$officeLocation || !isset($officeLocation['latitude']) || !isset($officeLocation['longitude']) || (isset($officeLocation['radius_meters']) && $officeLocation['radius_meters'] == 2000) || (isset($officeLocation['latitude']) && abs(floatval($officeLocation['latitude']) - 22.2955) < 0.001)) {
             $officeLocation = [
                 'enabled' => $officeLocation['enabled'] ?? true,
@@ -77,36 +85,44 @@ class AttendanceController extends Controller
             $empLng = $request->longitude !== null ? floatval($request->longitude) : null;
 
             if ($empLat === null || $empLng === null) {
-                return response()->json([
-                    'message' => 'Office location verification required: Clock-in is only possible when you are physically at the office premises (within 500 meters). Please enable GPS location on your device.',
-                    'code' => 'LOCATION_REQUIRED',
-                    'office' => [
-                        'name' => $officeLocation['name'] ?? 'Main Office',
-                        'radius_meters' => $officeLocation['radius_meters'] ?? 500,
-                        'address' => $officeLocation['address'] ?? 'Office Premises',
-                    ]
-                ], 422);
+                if ($isAdminOrHR) {
+                    $locationVerifiedNote = 'Admin verified (Office/Remote)';
+                } else {
+                    return response()->json([
+                        'message' => 'Office location verification required: Clock-in is only possible when you are physically at the office premises (within 500 meters). Please enable GPS location on your device.',
+                        'code' => 'LOCATION_REQUIRED',
+                        'office' => [
+                            'name' => $officeLocation['name'] ?? 'Main Office',
+                            'radius_meters' => $officeLocation['radius_meters'] ?? 500,
+                            'address' => $officeLocation['address'] ?? 'Office Premises',
+                        ]
+                    ], 422);
+                }
+            } else {
+                $officeLat = floatval($officeLocation['latitude'] ?? 22.3039);
+                $officeLng = floatval($officeLocation['longitude'] ?? 73.1783);
+                $allowedRadius = floatval($officeLocation['radius_meters'] ?? 500);
+
+                $distanceMeters = $this->calculateDistanceMeters($empLat, $empLng, $officeLat, $officeLng);
+
+                if ($distanceMeters > $allowedRadius) {
+                    $distanceFormatted = $distanceMeters >= 1000 ? round($distanceMeters / 1000, 1) . ' km' : round($distanceMeters) . ' meters';
+                    if ($isAdminOrHR) {
+                        $locationVerifiedNote = "Admin override ({$distanceFormatted} from office)";
+                    } else {
+                        return response()->json([
+                            'message' => "Clock-in restricted: You must be at the office premises to clock in. You are currently {$distanceFormatted} away from {$officeLocation['name']} (Allowed radius: {$allowedRadius} meters).",
+                            'code' => 'OUTSIDE_OFFICE_GEOFENCE',
+                            'distance_meters' => round($distanceMeters),
+                            'allowed_radius_meters' => $allowedRadius,
+                            'office_name' => $officeLocation['name'] ?? 'Main Office',
+                        ], 403);
+                    }
+                } else {
+                    $distDisplay = round($distanceMeters);
+                    $locationVerifiedNote = "Verified at office ({$distDisplay}m from center)";
+                }
             }
-
-            $officeLat = floatval($officeLocation['latitude'] ?? 22.2955);
-            $officeLng = floatval($officeLocation['longitude'] ?? 73.1764);
-            $allowedRadius = floatval($officeLocation['radius_meters'] ?? 500);
-
-            $distanceMeters = $this->calculateDistanceMeters($empLat, $empLng, $officeLat, $officeLng);
-
-            if ($distanceMeters > $allowedRadius) {
-                $distanceFormatted = $distanceMeters >= 1000 ? round($distanceMeters / 1000, 1) . ' km' : round($distanceMeters) . ' meters';
-                return response()->json([
-                    'message' => "Clock-in restricted: You must be at the office premises to clock in. You are currently {$distanceFormatted} away from {$officeLocation['name']} (Allowed radius: {$allowedRadius} meters).",
-                    'code' => 'OUTSIDE_OFFICE_GEOFENCE',
-                    'distance_meters' => round($distanceMeters),
-                    'allowed_radius_meters' => $allowedRadius,
-                    'office_name' => $officeLocation['name'] ?? 'Main Office',
-                ], 403);
-            }
-
-            $distDisplay = round($distanceMeters);
-            $locationVerifiedNote = "Verified at office ({$distDisplay}m from center)";
         }
 
         $user->load('shift');
@@ -277,46 +293,75 @@ class AttendanceController extends Controller
             $query->whereIn('user_id', $teamUserIds);
         }
 
+        if ($request->has('date') && $request->date != '') {
+            $query->whereDate('date', $request->date);
+        } elseif ($request->has('start_date') && $request->start_date != '' && $request->has('end_date') && $request->end_date != '') {
+            $query->whereBetween('date', [$request->start_date, $request->end_date]);
+        } elseif ($request->has('start_date') && $request->start_date != '') {
+            $query->whereDate('date', '>=', $request->start_date);
+        } elseif ($request->has('end_date') && $request->end_date != '') {
+            $query->whereDate('date', '<=', $request->end_date);
+        }
+
         if ($request->has('month') && $request->month != '') {
             $query->where('date', 'like', $request->month . '%');
         }
 
+        if ($request->has('status') && $request->status != '' && $request->status != 'all') {
+            if ($request->status === 'present') {
+                $query->whereIn('status', ['present', 'late']);
+            } else {
+                $query->where('status', $request->status);
+            }
+        }
+
+        if ($request->has('search') && $request->search != '') {
+            $searchTerm = '%' . $request->search . '%';
+            $query->whereHas('user', function ($q) use ($searchTerm) {
+                $q->where('name', 'like', $searchTerm)
+                  ->orWhere('employee_code', 'like', $searchTerm);
+            });
+        }
+
         $attendances = $query->orderBy('date', 'desc')->get()->toArray();
 
-        // Include synthetic absent records for today if viewing organizational / team history
-        if (!$request->has('user_id') || $request->user_id == '') {
+        // Include synthetic absent records for today (or filtered date) if viewing organizational / team history
+        if ((!$request->has('user_id') || $request->user_id == '') && (!$request->has('start_date') || $request->start_date == $request->end_date)) {
+            $targetDateStr = $request->get('date', Carbon::today()->toDateString());
             $todayStr = Carbon::today()->toDateString();
 
-            // Active users in scope
-            $usersQuery = User::where('organization_id', $user->organization_id)->where('status', 'active');
-            if ($roleName === 'manager') {
-                $usersQuery->where(function ($q) use ($user) {
-                    $q->where('manager_id', $user->id)->orWhere('id', $user->id);
-                });
-            } elseif ($roleName === 'employee') {
-                $usersQuery->where('id', $user->id);
-            }
-            $activeUsers = $usersQuery->get();
+            if ($targetDateStr === $todayStr) {
+                // Active users in scope
+                $usersQuery = User::where('organization_id', $user->organization_id)->where('status', 'active');
+                if ($roleName === 'manager') {
+                    $usersQuery->where(function ($q) use ($user) {
+                        $q->where('manager_id', $user->id)->orWhere('id', $user->id);
+                    });
+                } elseif ($roleName === 'employee') {
+                    $usersQuery->where('id', $user->id);
+                }
+                $activeUsers = $usersQuery->get();
 
-            // Find user_ids that already have attendance logged for today
-            $checkedInTodayUserIds = Attendance::where('organization_id', $user->organization_id)
-                ->whereDate('date', Carbon::today())
-                ->pluck('user_id')
-                ->toArray();
+                // Find user_ids that already have attendance logged for today
+                $checkedInTodayUserIds = Attendance::where('organization_id', $user->organization_id)
+                    ->whereDate('date', $targetDateStr)
+                    ->pluck('user_id')
+                    ->toArray();
 
-            foreach ($activeUsers as $activeUser) {
-                if (!in_array($activeUser->id, $checkedInTodayUserIds)) {
-                    $attendances[] = [
-                        'id' => 'absent_' . $activeUser->id . '_' . $todayStr,
-                        'organization_id' => $activeUser->organization_id,
-                        'user_id' => $activeUser->id,
-                        'date' => $todayStr,
-                        'check_in' => null,
-                        'check_out' => null,
-                        'status' => 'absent',
-                        'notes' => 'Not checked in yet today',
-                        'user' => $activeUser->toArray(),
-                    ];
+                foreach ($activeUsers as $activeUser) {
+                    if (!in_array($activeUser->id, $checkedInTodayUserIds)) {
+                        $attendances[] = [
+                            'id' => 'absent_' . $activeUser->id . '_' . $targetDateStr,
+                            'organization_id' => $activeUser->organization_id,
+                            'user_id' => $activeUser->id,
+                            'date' => $targetDateStr,
+                            'check_in' => null,
+                            'check_out' => null,
+                            'status' => 'absent',
+                            'notes' => 'Not checked in yet today',
+                            'user' => $activeUser->toArray(),
+                        ];
+                    }
                 }
             }
         }
