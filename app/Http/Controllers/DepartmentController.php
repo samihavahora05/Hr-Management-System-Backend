@@ -13,38 +13,26 @@ class DepartmentController extends Controller
     {
         $user = $request->user();
 
-        // Ensure default company departments exist in departments database table
-        $defaultDepts = [
-            'Engineering',
-            'Human Resources',
-            'Product Management',
-            'Marketing',
-            'Finance',
-            'Executive',
-            'Sales',
-            'Legal & Compliance',
-            'Customer Success',
-            'Operations',
-        ];
+        // Seed default company departments ONLY if organization has no departments yet
+        $existingCount = Department::where('organization_id', $user->organization_id)->count();
+        if ($existingCount === 0) {
+            $defaultDepts = [
+                'Engineering',
+                'Human Resources',
+                'Product Management',
+                'Marketing',
+                'Finance',
+                'Executive',
+                'Sales',
+                'Legal & Compliance',
+                'Customer Success',
+                'Operations',
+            ];
 
-        foreach ($defaultDepts as $dName) {
-            Department::firstOrCreate([
-                'organization_id' => $user->organization_id,
-                'name' => $dName,
-            ]);
-        }
-
-        // Also check if any employee has a custom department assigned
-        $empDepts = User::where('organization_id', $user->organization_id)
-            ->whereNotNull('department')
-            ->pluck('department')
-            ->unique();
-
-        foreach ($empDepts as $eDept) {
-            if ($eDept) {
+            foreach ($defaultDepts as $dName) {
                 Department::firstOrCreate([
                     'organization_id' => $user->organization_id,
-                    'name' => trim($eDept),
+                    'name' => $dName,
                 ]);
             }
         }
@@ -120,5 +108,57 @@ class DepartmentController extends Controller
             'message' => "Department '{$name}' created and saved to database successfully.",
             'department' => $department,
         ], 201);
+    }
+
+    public function destroy(Request $request, $id)
+    {
+        $actor = $request->user();
+        $roleName = strtolower($actor->role->name ?? 'employee');
+
+        if ($roleName !== 'admin') {
+            return response()->json(['message' => 'Unauthorized: Only Admin can delete departments'], 403);
+        }
+
+        $department = Department::where('organization_id', $actor->organization_id)
+            ->where(function($q) use ($id) {
+                if (is_numeric($id)) {
+                    $q->where('id', $id);
+                } else {
+                    $q->where('name', $id);
+                }
+            })
+            ->first();
+
+        if (!$department) {
+            return response()->json(['message' => 'Department not found'], 404);
+        }
+
+        // Check if active employees are assigned to this department
+        $activeEmployeesCount = User::where('organization_id', $actor->organization_id)
+            ->where('department', $department->name)
+            ->count();
+
+        if ($activeEmployeesCount > 0) {
+            return response()->json([
+                'message' => "Cannot delete department '{$department->name}' because {$activeEmployeesCount} active employee(s) are currently assigned to it. Please reassign the employees first."
+            ], 422);
+        }
+
+        $deptName = $department->name;
+        $deptId = $department->id;
+        $department->delete();
+
+        AuditLog::create([
+            'organization_id' => $actor->organization_id,
+            'actor_id' => $actor->id,
+            'action' => 'delete_department',
+            'target_type' => 'Department',
+            'target_id' => $deptId,
+            'payload' => ['department' => $deptName],
+        ]);
+
+        return response()->json([
+            'message' => "Department '{$deptName}' deleted successfully."
+        ]);
     }
 }
