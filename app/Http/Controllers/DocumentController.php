@@ -192,7 +192,26 @@ class DocumentController extends Controller
             return response()->json(['message' => 'The physical document file does not exist on storage.'], 404);
         }
 
-        return Storage::disk('local')->response($doc->file_url);
+        $ext = strtolower(pathinfo($doc->file_url, PATHINFO_EXTENSION));
+        $mimeMap = [
+            'pdf'  => 'application/pdf',
+            'png'  => 'image/png',
+            'jpg'  => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'webp' => 'image/webp',
+            'txt'  => 'text/plain; charset=utf-8',
+            'csv'  => 'text/csv; charset=utf-8',
+        ];
+
+        $contentType = $mimeMap[$ext] ?? 'application/pdf';
+        $filename = (Str::slug($doc->title) ?: 'document') . '.' . ($ext ?: 'pdf');
+
+        return response(Storage::disk('local')->get($doc->file_url), 200, [
+            'Content-Type' => $contentType,
+            'Content-Disposition' => "inline; filename=\"{$filename}\"",
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'no-cache, private',
+        ]);
     }
 
     public function destroy(Request $request, $id)
