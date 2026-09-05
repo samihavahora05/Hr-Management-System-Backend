@@ -293,46 +293,75 @@ class AttendanceController extends Controller
             $query->whereIn('user_id', $teamUserIds);
         }
 
+        if ($request->has('date') && $request->date != '') {
+            $query->whereDate('date', $request->date);
+        } elseif ($request->has('start_date') && $request->start_date != '' && $request->has('end_date') && $request->end_date != '') {
+            $query->whereBetween('date', [$request->start_date, $request->end_date]);
+        } elseif ($request->has('start_date') && $request->start_date != '') {
+            $query->whereDate('date', '>=', $request->start_date);
+        } elseif ($request->has('end_date') && $request->end_date != '') {
+            $query->whereDate('date', '<=', $request->end_date);
+        }
+
         if ($request->has('month') && $request->month != '') {
             $query->where('date', 'like', $request->month . '%');
         }
 
+        if ($request->has('status') && $request->status != '' && $request->status != 'all') {
+            if ($request->status === 'present') {
+                $query->whereIn('status', ['present', 'late']);
+            } else {
+                $query->where('status', $request->status);
+            }
+        }
+
+        if ($request->has('search') && $request->search != '') {
+            $searchTerm = '%' . $request->search . '%';
+            $query->whereHas('user', function ($q) use ($searchTerm) {
+                $q->where('name', 'like', $searchTerm)
+                  ->orWhere('employee_code', 'like', $searchTerm);
+            });
+        }
+
         $attendances = $query->orderBy('date', 'desc')->get()->toArray();
 
-        // Include synthetic absent records for today if viewing organizational / team history
-        if (!$request->has('user_id') || $request->user_id == '') {
+        // Include synthetic absent records for today (or filtered date) if viewing organizational / team history
+        if ((!$request->has('user_id') || $request->user_id == '') && (!$request->has('start_date') || $request->start_date == $request->end_date)) {
+            $targetDateStr = $request->get('date', Carbon::today()->toDateString());
             $todayStr = Carbon::today()->toDateString();
 
-            // Active users in scope
-            $usersQuery = User::where('organization_id', $user->organization_id)->where('status', 'active');
-            if ($roleName === 'manager') {
-                $usersQuery->where(function ($q) use ($user) {
-                    $q->where('manager_id', $user->id)->orWhere('id', $user->id);
-                });
-            } elseif ($roleName === 'employee') {
-                $usersQuery->where('id', $user->id);
-            }
-            $activeUsers = $usersQuery->get();
+            if ($targetDateStr === $todayStr) {
+                // Active users in scope
+                $usersQuery = User::where('organization_id', $user->organization_id)->where('status', 'active');
+                if ($roleName === 'manager') {
+                    $usersQuery->where(function ($q) use ($user) {
+                        $q->where('manager_id', $user->id)->orWhere('id', $user->id);
+                    });
+                } elseif ($roleName === 'employee') {
+                    $usersQuery->where('id', $user->id);
+                }
+                $activeUsers = $usersQuery->get();
 
-            // Find user_ids that already have attendance logged for today
-            $checkedInTodayUserIds = Attendance::where('organization_id', $user->organization_id)
-                ->whereDate('date', Carbon::today())
-                ->pluck('user_id')
-                ->toArray();
+                // Find user_ids that already have attendance logged for today
+                $checkedInTodayUserIds = Attendance::where('organization_id', $user->organization_id)
+                    ->whereDate('date', $targetDateStr)
+                    ->pluck('user_id')
+                    ->toArray();
 
-            foreach ($activeUsers as $activeUser) {
-                if (!in_array($activeUser->id, $checkedInTodayUserIds)) {
-                    $attendances[] = [
-                        'id' => 'absent_' . $activeUser->id . '_' . $todayStr,
-                        'organization_id' => $activeUser->organization_id,
-                        'user_id' => $activeUser->id,
-                        'date' => $todayStr,
-                        'check_in' => null,
-                        'check_out' => null,
-                        'status' => 'absent',
-                        'notes' => 'Not checked in yet today',
-                        'user' => $activeUser->toArray(),
-                    ];
+                foreach ($activeUsers as $activeUser) {
+                    if (!in_array($activeUser->id, $checkedInTodayUserIds)) {
+                        $attendances[] = [
+                            'id' => 'absent_' . $activeUser->id . '_' . $targetDateStr,
+                            'organization_id' => $activeUser->organization_id,
+                            'user_id' => $activeUser->id,
+                            'date' => $targetDateStr,
+                            'check_in' => null,
+                            'check_out' => null,
+                            'status' => 'absent',
+                            'notes' => 'Not checked in yet today',
+                            'user' => $activeUser->toArray(),
+                        ];
+                    }
                 }
             }
         }
