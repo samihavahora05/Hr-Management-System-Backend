@@ -27,14 +27,20 @@ class Task extends Model
         'notes',
         'completion_notes',
         'completed_at',
+        'last_edited_by',
+        'last_edited_at',
+        'last_edit_summary',
+        'edit_history',
     ];
 
     protected $casts = [
         'start_date' => 'date:Y-m-d',
         'due_date' => 'date:Y-m-d',
         'subtasks' => 'array',
+        'edit_history' => 'array',
         'progress_percentage' => 'integer',
         'completed_at' => 'datetime:Y-m-d H:i:s',
+        'last_edited_at' => 'datetime:Y-m-d H:i:s',
     ];
 
     protected function serializeDate(\DateTimeInterface $date): string
@@ -55,6 +61,11 @@ class Task extends Model
     public function assignedTo()
     {
         return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    public function lastEditor()
+    {
+        return $this->belongsTo(User::class, 'last_edited_by');
     }
 
     /**

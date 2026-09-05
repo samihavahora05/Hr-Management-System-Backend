@@ -11,6 +11,25 @@ use Carbon\Carbon;
 class TaskController extends Controller
 {
     /**
+     * Helper to guarantee task edit tracking columns exist in SQLite database
+     */
+    private function ensureEditColumnsExist(): void
+    {
+        try {
+            if (!\Illuminate\Support\Facades\Schema::hasColumn('tasks', 'last_edited_by')) {
+                \Illuminate\Support\Facades\Schema::table('tasks', function (\Illuminate\Database\Schema\Blueprint $table) {
+                    $table->unsignedBigInteger('last_edited_by')->nullable();
+                    $table->timestamp('last_edited_at')->nullable();
+                    $table->text('last_edit_summary')->nullable();
+                    $table->json('edit_history')->nullable();
+                });
+            }
+        } catch (\Throwable $e) {
+            // ignore if schema table already locked or altered
+        }
+    }
+
+    /**
      * Helper to get user's canonical role name
      */
     private function getRoleName(User $user): string
@@ -91,7 +110,9 @@ class TaskController extends Controller
                 'assigner:id,name,email,avatar,role_id',
                 'assigner.role:id,name,display_name',
                 'assignedTo:id,name,email,avatar,department,designation,role_id',
-                'assignedTo.role:id,name,display_name'
+                'assignedTo.role:id,name,display_name',
+                'lastEditor:id,name,email,avatar,role_id',
+                'lastEditor.role:id,name,display_name'
             ]);
 
         // Strict Role Scoping
@@ -358,7 +379,9 @@ class TaskController extends Controller
                 'assigner:id,name,email,avatar,role_id',
                 'assigner.role:id,name,display_name',
                 'assignedTo:id,name,email,avatar,department,designation,role_id',
-                'assignedTo.role:id,name,display_name'
+                'assignedTo.role:id,name,display_name',
+                'lastEditor:id,name,email,avatar,role_id',
+                'lastEditor.role:id,name,display_name'
             ])
             ->first();
 
@@ -375,6 +398,7 @@ class TaskController extends Controller
     public function updateStatus(Request $request, $id)
     {
         $user = $request->user();
+        $role = $this->getRoleName($user);
         $task = Task::where('organization_id', $user->organization_id)
             ->where('id', $id)
             ->first();
@@ -383,10 +407,12 @@ class TaskController extends Controller
             return response()->json(['message' => 'Task not found'], 404);
         }
 
-        // Only the assigned employee can change task status (assigners can only view status)
-        if ((int)$task->assigned_to !== (int)$user->id) {
+        $isAdminOrAssigner = in_array($role, ['admin', 'hr', 'manager', 'team_leader']) || (int)$task->assigner_id === (int)$user->id;
+
+        // Assigned employee or management/assigner can change task status
+        if ((int)$task->assigned_to !== (int)$user->id && !$isAdminOrAssigner) {
             return response()->json([
-                'message' => 'Only the assigned employee can update this task\'s status.'
+                'message' => 'Only the assigned employee or management can update this task\'s status.'
             ], 403);
         }
 
@@ -419,9 +445,7 @@ class TaskController extends Controller
         $currentRank = $phaseRanks[$task->status] ?? 1;
         $targetRank = $phaseRanks[$newStatus] ?? 1;
 
-        $isAdminOrAssigner = $user->id === $task->assigner_id || in_array($user->getCanonicalRole(), ['admin', 'hr']);
-
-        // Non-admin assignee cannot manually move backward to a previous phase
+        // Non-admin/assignee cannot manually move backward to a previous phase unless admin/assigner
         if (!$isAdminOrAssigner && $targetRank < $currentRank && $task->status !== 'overdue') {
             return response()->json([
                 'message' => 'Status progression error: You cannot move a task backward to a previous phase.'
@@ -429,7 +453,7 @@ class TaskController extends Controller
         }
 
         $subtasks = $task->subtasks ?? [];
-        if (is_array($subtasks) && count($subtasks) > 0 && $newStatus === 'completed') {
+        if (!$isAdminOrAssigner && is_array($subtasks) && count($subtasks) > 0 && $newStatus === 'completed') {
             $completedSubtasks = count(array_filter($subtasks, fn($s) => !empty($s['completed'])));
             if ($completedSubtasks < count($subtasks)) {
                 return response()->json([
@@ -448,7 +472,7 @@ class TaskController extends Controller
             $task->progress_percentage = 25;
         }
 
-        if ($request->status === 'completed') {
+        if ($newStatus === 'completed') {
             $task->progress_percentage = 100;
             $task->completed_at = Carbon::now();
             if ($request->filled('completion_notes')) {
@@ -485,7 +509,9 @@ class TaskController extends Controller
                 'assigner:id,name,email,avatar,role_id',
                 'assigner.role:id,name,display_name',
                 'assignedTo:id,name,email,avatar,department,designation,role_id',
-                'assignedTo.role:id,name,display_name'
+                'assignedTo.role:id,name,display_name',
+                'lastEditor:id,name,email,avatar,role_id',
+                'lastEditor.role:id,name,display_name'
             ])
         ]);
     }
@@ -496,6 +522,7 @@ class TaskController extends Controller
     public function toggleSubtask(Request $request, $id)
     {
         $user = $request->user();
+        $role = $this->getRoleName($user);
         $task = Task::where('organization_id', $user->organization_id)
             ->where('id', $id)
             ->first();
@@ -504,10 +531,12 @@ class TaskController extends Controller
             return response()->json(['message' => 'Task not found'], 404);
         }
 
-        // Only the assigned employee performing the task can update checklist subtasks
-        if ((int)$task->assigned_to !== (int)$user->id) {
+        $isAdminOrAssigner = in_array($role, ['admin', 'hr', 'manager', 'team_leader']) || (int)$task->assigner_id === (int)$user->id;
+
+        // Assigned employee or management/assigner can update checklist subtasks
+        if ((int)$task->assigned_to !== (int)$user->id && !$isAdminOrAssigner) {
             return response()->json([
-                'message' => 'Unauthorized: Only the assigned employee performing this task can update checklist subtasks.'
+                'message' => 'Unauthorized: Only the assigned employee or management can update checklist subtasks.'
             ], 403);
         }
 
@@ -566,7 +595,9 @@ class TaskController extends Controller
                 'assigner:id,name,email,avatar,role_id',
                 'assigner.role:id,name,display_name',
                 'assignedTo:id,name,email,avatar,department,designation,role_id',
-                'assignedTo.role:id,name,display_name'
+                'assignedTo.role:id,name,display_name',
+                'lastEditor:id,name,email,avatar,role_id',
+                'lastEditor.role:id,name,display_name'
             ])
         ]);
     }
@@ -576,6 +607,7 @@ class TaskController extends Controller
      */
     public function update(Request $request, $id)
     {
+        $this->ensureEditColumnsExist();
         $user = $request->user();
         $role = $this->getRoleName($user);
 
@@ -586,7 +618,7 @@ class TaskController extends Controller
         }
 
         if (in_array($role, ['admin', 'hr'])) {
-            // Admin and HR have full access
+            // Admin and HR have full access across all organization tasks
         } elseif ($user->organization_id && $task->organization_id && (int)$task->organization_id !== (int)$user->organization_id) {
             return response()->json(['message' => 'Unauthorized: Task belongs to a different organization.'], 403);
         } elseif ((int)$task->assigner_id !== (int)$user->id && !in_array($role, ['manager', 'team_leader'])) {
@@ -599,30 +631,175 @@ class TaskController extends Controller
             'assigned_to' => 'nullable|exists:users,id',
             'priority' => 'nullable|in:low,medium,high,urgent',
             'category' => 'nullable|string',
+            'status' => 'nullable|in:todo,pending,in_progress,under_review,completed,overdue,cancelled',
+            'progress_percentage' => 'nullable|integer|min:0|max:100',
             'start_date' => 'nullable|date',
             'due_date' => 'nullable|date',
             'subtasks' => 'nullable|array',
             'notes' => 'nullable|string',
+            'completion_notes' => 'nullable|string',
         ]);
 
-        if ($request->has('title')) $task->title = $request->title;
-        if ($request->has('description')) $task->description = $request->description;
-        if ($request->has('priority')) $task->priority = $request->priority;
-        if ($request->has('category')) $task->category = $request->category;
-        if ($request->has('start_date')) $task->start_date = $request->start_date;
-        if ($request->has('due_date')) $task->due_date = $request->due_date;
-        if ($request->has('subtasks')) $task->subtasks = $request->subtasks;
-        if ($request->has('notes')) $task->notes = $request->notes;
+        // Capture previous state for audit diffing
+        $prevTitle = $task->title;
+        $prevDescription = $task->description;
+        $prevPriority = $task->priority;
+        $prevCategory = $task->category;
+        $prevStatus = $task->status;
+        $prevDueDate = $task->due_date ? Carbon::parse($task->due_date)->toDateString() : null;
+        $prevAssignedTo = $task->assigned_to;
+        $prevNotes = $task->notes;
+        $prevSubtasks = $task->subtasks ?? [];
 
-        if ($request->filled('assigned_to') && (int)$request->assigned_to !== (int)$task->assigned_to) {
-            $targetUser = User::find($request->assigned_to);
-            if ($targetUser) {
-                $task->assigned_to = $targetUser->id;
-                $task->assigned_to_role = $this->getRoleName($targetUser);
+        $changes = [];
+
+        if ($request->has('title') && $request->title !== $prevTitle) {
+            $changes[] = "Title changed to \"{$request->title}\" (previously \"{$prevTitle}\")";
+            $task->title = $request->title;
+        }
+
+        if ($request->has('description') && $request->description !== $prevDescription) {
+            $changes[] = "Work description/scope updated";
+            $task->description = $request->description;
+        }
+
+        if ($request->has('priority') && $request->priority !== $prevPriority) {
+            $changes[] = "Priority adjusted from " . ucfirst($prevPriority) . " to " . ucfirst($request->priority);
+            $task->priority = $request->priority;
+        }
+
+        if ($request->has('category') && $request->category !== $prevCategory) {
+            $changes[] = "Category changed to " . ucfirst($request->category);
+            $task->category = $request->category;
+        }
+
+        if ($request->has('start_date')) {
+            $task->start_date = $request->start_date;
+        }
+
+        if ($request->has('due_date')) {
+            $newDueDateStr = $request->due_date ? Carbon::parse($request->due_date)->toDateString() : null;
+            if ($newDueDateStr !== $prevDueDate) {
+                $changes[] = $newDueDateStr ? "Due date set to {$newDueDateStr}" : "Due date removed";
+                $task->due_date = $request->due_date;
             }
         }
 
+        if ($request->has('subtasks')) {
+            $newSubtasks = $request->subtasks ?? [];
+            if (json_encode($newSubtasks) !== json_encode($prevSubtasks)) {
+                $changes[] = "Checklist subtasks revised (" . count($newSubtasks) . " items)";
+                $task->subtasks = $newSubtasks;
+                if (is_array($newSubtasks) && count($newSubtasks) > 0) {
+                    $completedCount = count(array_filter($newSubtasks, fn($s) => !empty($s['completed'])));
+                    $task->progress_percentage = (int) round(($completedCount / count($newSubtasks)) * 100);
+                }
+            }
+        }
+
+        if ($request->has('notes') && $request->notes !== $prevNotes) {
+            $changes[] = "Instructions / internal notes updated";
+            $task->notes = $request->notes;
+        }
+
+        if ($request->has('completion_notes')) {
+            $task->completion_notes = $request->completion_notes;
+        }
+
+        if ($request->has('progress_percentage')) {
+            $task->progress_percentage = $request->progress_percentage;
+        }
+
+        if ($request->has('status')) {
+            $statusInput = $request->status;
+            if ($statusInput === 'pending') {
+                $newStatus = 'todo';
+            } elseif ($statusInput === 'under_review') {
+                $newStatus = 'in_progress';
+            } else {
+                $newStatus = $statusInput;
+            }
+
+            if ($newStatus !== $prevStatus) {
+                $changes[] = "Status moved from " . str_replace('_', ' ', $prevStatus) . " to " . str_replace('_', ' ', $newStatus);
+                $task->status = $newStatus;
+
+                if ($newStatus === 'completed') {
+                    $task->progress_percentage = 100;
+                    if (!$task->completed_at) {
+                        $task->completed_at = Carbon::now();
+                    }
+                } else {
+                    $task->completed_at = null;
+                }
+            }
+        }
+
+        $reassigned = false;
+        if ($request->filled('assigned_to') && (int)$request->assigned_to !== (int)$prevAssignedTo) {
+            $oldAssignee = User::find($prevAssignedTo);
+            $newAssignee = User::find($request->assigned_to);
+            if ($newAssignee) {
+                $oldName = $oldAssignee ? $oldAssignee->name : "User #{$prevAssignedTo}";
+                $changes[] = "Task reassigned from {$oldName} to {$newAssignee->name}";
+                $task->assigned_to = $newAssignee->id;
+                $task->assigned_to_role = $this->getRoleName($newAssignee);
+                $reassigned = true;
+            }
+        }
+
+        // Record edit history if changes were made
+        if (count($changes) > 0) {
+            $summaryText = implode('; ', $changes);
+            $historyEntry = [
+                'id' => (string) str_replace('.', '', uniqid('rev_', true)),
+                'editor_id' => $user->id,
+                'editor_name' => $user->name,
+                'editor_role' => $user->role->display_name ?? ucfirst($role),
+                'timestamp' => Carbon::now()->toIso8601String(),
+                'summary' => $summaryText,
+                'changes' => $changes,
+            ];
+
+            $history = $task->edit_history ?? [];
+            if (!is_array($history)) {
+                $history = [];
+            }
+            array_unshift($history, $historyEntry);
+
+            $task->edit_history = array_slice($history, 0, 25);
+            $task->last_edited_by = $user->id;
+            $task->last_edited_at = Carbon::now();
+            $task->last_edit_summary = $summaryText;
+        }
+
         $task->save();
+
+        // Dispatch notifications to assigned employee so no misunderstanding happens
+        if (count($changes) > 0) {
+            $currentAssignee = User::find($task->assigned_to);
+            if ($currentAssignee && (int)$currentAssignee->id !== (int)$user->id) {
+                NotificationService::create(
+                    $task->organization_id,
+                    $currentAssignee->id,
+                    'Task Updated by Admin: ' . $task->title,
+                    "Admin {$user->name} has updated your task \"{$task->title}\". Updates: {$task->last_edit_summary}. Please review your task instructions.",
+                    'info',
+                    '/employee/tasks'
+                );
+            }
+
+            if ($reassigned && $prevAssignedTo && (int)$prevAssignedTo !== (int)$user->id && (int)$prevAssignedTo !== (int)$task->assigned_to) {
+                NotificationService::create(
+                    $task->organization_id,
+                    $prevAssignedTo,
+                    'Task Reassigned: ' . $task->title,
+                    "Task \"{$task->title}\" was reassigned to {$task->assignedTo?->name} by {$user->name}.",
+                    'info',
+                    '/employee/tasks'
+                );
+            }
+        }
 
         return response()->json([
             'message' => 'Task updated successfully',
@@ -630,7 +807,9 @@ class TaskController extends Controller
                 'assigner:id,name,email,avatar,role_id',
                 'assigner.role:id,name,display_name',
                 'assignedTo:id,name,email,avatar,department,designation,role_id',
-                'assignedTo.role:id,name,display_name'
+                'assignedTo.role:id,name,display_name',
+                'lastEditor:id,name,email,avatar,role_id',
+                'lastEditor.role:id,name,display_name'
             ])
         ]);
     }
