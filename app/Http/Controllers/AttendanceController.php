@@ -55,14 +55,12 @@ class AttendanceController extends Controller
         // Office Location Geofence Verification: Clock-in only permitted if employee is at office place (within 500m)
         $org = Organization::find($user->organization_id);
         $settings = $org->settings ?? [];
-        $officeLocation = $settings['office_location'] ?? null;
-
-        if (!$officeLocation || !isset($officeLocation['latitude']) || !isset($officeLocation['longitude']) || (isset($officeLocation['radius_meters']) && $officeLocation['radius_meters'] == 2000)) {
+        if (!$officeLocation || !isset($officeLocation['latitude']) || !isset($officeLocation['longitude']) || (isset($officeLocation['radius_meters']) && $officeLocation['radius_meters'] == 2000) || (isset($officeLocation['latitude']) && abs(floatval($officeLocation['latitude']) - 22.2955) < 0.001)) {
             $officeLocation = [
                 'enabled' => $officeLocation['enabled'] ?? true,
                 'name' => $officeLocation['name'] ?? 'Main Office Headquarters',
-                'latitude' => floatval($officeLocation['latitude'] ?? 22.2955),
-                'longitude' => floatval($officeLocation['longitude'] ?? 73.1764),
+                'latitude' => 22.3039,
+                'longitude' => 73.1783,
                 'radius_meters' => 500,
                 'address' => $officeLocation['address'] ?? 'SF 02, INDIA BULLS MEGA MALL, Dinesh Mill Rd, near Swami Vivekananda Railway Over Bridge, Anand Nagar, Akota, Vadodara, Gujarat 390022',
             ];
@@ -655,12 +653,12 @@ class AttendanceController extends Controller
         $settings = $org->settings ?? [];
         $officeLocation = $settings['office_location'] ?? null;
 
-        if (!$officeLocation || !isset($officeLocation['latitude']) || !isset($officeLocation['longitude']) || (isset($officeLocation['radius_meters']) && $officeLocation['radius_meters'] == 2000)) {
+        if (!$officeLocation || !isset($officeLocation['latitude']) || !isset($officeLocation['longitude']) || (isset($officeLocation['radius_meters']) && $officeLocation['radius_meters'] == 2000) || (isset($officeLocation['latitude']) && abs(floatval($officeLocation['latitude']) - 22.2955) < 0.001)) {
             $officeLocation = [
                 'enabled' => $officeLocation['enabled'] ?? true,
                 'name' => $officeLocation['name'] ?? 'Main Office Headquarters',
-                'latitude' => floatval($officeLocation['latitude'] ?? 22.2955),
-                'longitude' => floatval($officeLocation['longitude'] ?? 73.1764),
+                'latitude' => 22.3039,
+                'longitude' => 73.1783,
                 'radius_meters' => 500,
                 'address' => $officeLocation['address'] ?? 'SF 02, INDIA BULLS MEGA MALL, Dinesh Mill Rd, near Swami Vivekananda Railway Over Bridge, Anand Nagar, Akota, Vadodara, Gujarat 390022',
             ];

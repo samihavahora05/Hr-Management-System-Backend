@@ -576,6 +576,70 @@ class TaskController extends Controller
     }
 
     /**
+     * Update task details (Admin, HR, Manager, Team Leader or Assigner)
+     */
+    public function update(Request $request, $id)
+    {
+        $user = $request->user();
+        $role = $this->getRoleName($user);
+
+        $task = Task::where('id', $id)->first();
+
+        if (!$task) {
+            return response()->json(['message' => 'Task not found'], 404);
+        }
+
+        if (in_array($role, ['admin', 'hr'])) {
+            // Admin and HR have full access
+        } elseif ($user->organization_id && $task->organization_id && (int)$task->organization_id !== (int)$user->organization_id) {
+            return response()->json(['message' => 'Unauthorized: Task belongs to a different organization.'], 403);
+        } elseif ((int)$task->assigner_id !== (int)$user->id && !in_array($role, ['manager', 'team_leader'])) {
+            return response()->json(['message' => 'Unauthorized: Only the task creator or management can edit this task.'], 403);
+        }
+
+        $request->validate([
+            'title' => 'sometimes|required|string|max:255',
+            'description' => 'nullable|string',
+            'assigned_to' => 'nullable|exists:users,id',
+            'priority' => 'nullable|in:low,medium,high,urgent',
+            'category' => 'nullable|string',
+            'start_date' => 'nullable|date',
+            'due_date' => 'nullable|date',
+            'subtasks' => 'nullable|array',
+            'notes' => 'nullable|string',
+        ]);
+
+        if ($request->has('title')) $task->title = $request->title;
+        if ($request->has('description')) $task->description = $request->description;
+        if ($request->has('priority')) $task->priority = $request->priority;
+        if ($request->has('category')) $task->category = $request->category;
+        if ($request->has('start_date')) $task->start_date = $request->start_date;
+        if ($request->has('due_date')) $task->due_date = $request->due_date;
+        if ($request->has('subtasks')) $task->subtasks = $request->subtasks;
+        if ($request->has('notes')) $task->notes = $request->notes;
+
+        if ($request->filled('assigned_to') && (int)$request->assigned_to !== (int)$task->assigned_to) {
+            $targetUser = User::find($request->assigned_to);
+            if ($targetUser) {
+                $task->assigned_to = $targetUser->id;
+                $task->assigned_to_role = $this->getRoleName($targetUser);
+            }
+        }
+
+        $task->save();
+
+        return response()->json([
+            'message' => 'Task updated successfully',
+            'task' => $task->load([
+                'assigner:id,name,email,avatar,role_id',
+                'assigner.role:id,name,display_name',
+                'assignedTo:id,name,email,avatar,department,designation,role_id',
+                'assignedTo.role:id,name,display_name'
+            ])
+        ]);
+    }
+
+    /**
      * Delete / Cancel task
      */
     public function destroy(Request $request, $id)
@@ -583,21 +647,33 @@ class TaskController extends Controller
         $user = $request->user();
         $role = $this->getRoleName($user);
 
-        $task = Task::where('organization_id', $user->organization_id)
-            ->where('id', $id)
-            ->first();
+        // Find task by ID
+        $task = Task::where('id', $id)->first();
 
         if (!$task) {
             return response()->json(['message' => 'Task not found'], 404);
         }
 
-        if ($task->assigner_id !== $user->id && !in_array($role, ['admin', 'hr', 'manager', 'team_leader'])) {
-            return response()->json(['message' => 'Unauthorized: Only task assigner or Admin/Management can delete this task.'], 403);
+        // Check organization isolation unless global admin
+        if ($user->organization_id && $task->organization_id && (int)$task->organization_id !== (int)$user->organization_id && $role !== 'admin') {
+            return response()->json(['message' => 'Unauthorized: Task belongs to a different organization.'], 403);
+        }
+
+        // Authorization check: Admin, HR, Manager, Team Leader, or the user who created/assigned it
+        $isAuthorized = in_array($role, ['admin', 'hr', 'manager', 'team_leader'])
+            || (int)$task->assigner_id === (int)$user->id
+            || (int)$task->assigned_to === (int)$user->id;
+
+        if (!$isAuthorized) {
+            return response()->json(['message' => 'Unauthorized: You do not have permission to delete this task.'], 403);
         }
 
         $task->delete();
 
-        return response()->json(['message' => 'Task deleted successfully']);
+        return response()->json([
+            'message' => 'Task deleted successfully',
+            'task_id' => (int)$id,
+        ]);
     }
 
     /**
