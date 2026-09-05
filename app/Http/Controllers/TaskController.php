@@ -86,10 +86,6 @@ class TaskController extends Controller
         $user = $request->user();
         $role = $this->getRoleName($user);
 
-        if (Task::where('organization_id', $user->organization_id)->count() === 0) {
-            $this->seedInitialTasks($user->organization_id);
-        }
-
         $query = Task::where('organization_id', $user->organization_id)
             ->with([
                 'assigner:id,name,email,avatar,role_id',
