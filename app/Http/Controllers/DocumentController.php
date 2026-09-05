@@ -106,7 +106,7 @@ class DocumentController extends Controller
         $request->validate([
             'title' => 'required|string|max:255',
             'type' => 'required|string|max:50',
-            'file' => 'required|file|mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png|max:15360', // 15MB max
+            'file' => 'required|file|mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png,webp,svg|max:15360', // 15MB max
             'user_id' => 'nullable|exists:users,id',
         ]);
 
@@ -155,8 +155,16 @@ class DocumentController extends Controller
             'jpg'  => 'image/jpeg',
             'jpeg' => 'image/jpeg',
             'webp' => 'image/webp',
+            'svg'  => 'image/svg+xml',
+            'gif'  => 'image/gif',
+            'bmp'  => 'image/bmp',
             'txt'  => 'text/plain; charset=utf-8',
             'csv'  => 'text/csv; charset=utf-8',
+            'json' => 'application/json; charset=utf-8',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'xls'  => 'application/vnd.ms-excel',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'doc'  => 'application/msword',
         ];
 
         if (Storage::disk('local')->exists($filePath)) {
@@ -164,7 +172,7 @@ class DocumentController extends Controller
             return [
                 'content' => Storage::disk('local')->get($filePath),
                 'ext' => $ext ?: 'pdf',
-                'contentType' => $mimeMap[$ext] ?? 'application/pdf',
+                'contentType' => $mimeMap[$ext] ?? 'application/octet-stream',
             ];
         }
 
@@ -173,7 +181,7 @@ class DocumentController extends Controller
             return [
                 'content' => Storage::disk('public')->get($filePath),
                 'ext' => $ext ?: 'pdf',
-                'contentType' => $mimeMap[$ext] ?? 'application/pdf',
+                'contentType' => $mimeMap[$ext] ?? 'application/octet-stream',
             ];
         }
 
@@ -182,7 +190,7 @@ class DocumentController extends Controller
             return [
                 'content' => file_get_contents(storage_path('app/' . $filePath)),
                 'ext' => $ext ?: 'pdf',
-                'contentType' => $mimeMap[$ext] ?? 'application/pdf',
+                'contentType' => $mimeMap[$ext] ?? 'application/octet-stream',
             ];
         }
 
