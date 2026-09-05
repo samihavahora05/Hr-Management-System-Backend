@@ -37,6 +37,9 @@ class AuthController extends Controller
         $user->remember_token = $token;
         $user->save();
 
+        // Cache the token for instant and multi-session authentication resilience
+        \Illuminate\Support\Facades\Cache::put('auth_token_' . $token, $user->id, now()->addDays(30));
+
         // Automatically process shift auto-checkouts (using employee-specific shift end time)
         app(AttendanceController::class)->processAutoCheckouts($user->organization_id, $user->id);
 

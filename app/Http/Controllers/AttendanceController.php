@@ -14,6 +14,11 @@ class AttendanceController extends Controller
     public function checkIn(Request $request)
     {
         $user = $request->user();
+        $roleName = strtolower($user->role->name ?? $user->role ?? 'employee');
+        if (method_exists($user, 'getCanonicalRole')) {
+            $roleName = $user->getCanonicalRole();
+        }
+        $isAdminOrHR = in_array($roleName, ['admin', 'hr']);
 
         // Auto check-out any previous open attendance records
         $this->processAutoCheckouts($user->organization_id, $user->id);
@@ -38,18 +43,20 @@ class AttendanceController extends Controller
             ], 400);
         }
 
-        // Check if shift has already ended for today
-        $isSaturday = Carbon::today()->isSaturday();
-        $cutoffTime = $isSaturday ? '14:00:00' : '18:00:00';
-        if ($user->shift && !$isSaturday && $user->shift->end_time) {
-            $cutoffTime = strlen($user->shift->end_time) === 5 ? $user->shift->end_time . ':00' : $user->shift->end_time;
-        }
+        // Check if shift has already ended for today (exempt admin/hr for testing/remote override)
+        if (!$isAdminOrHR) {
+            $isSaturday = Carbon::today()->isSaturday();
+            $cutoffTime = $isSaturday ? '14:00:00' : '18:00:00';
+            if ($user->shift && !$isSaturday && $user->shift->end_time) {
+                $cutoffTime = strlen($user->shift->end_time) === 5 ? $user->shift->end_time . ':00' : $user->shift->end_time;
+            }
 
-        $nowTime = Carbon::now()->format('H:i:s');
-        if ($nowTime >= $cutoffTime) {
-            return response()->json([
-                'message' => 'Check-in closed: Your shift ended at ' . substr($cutoffTime, 0, 5) . '. Check-in is closed for today.',
-            ], 400);
+            $nowTime = $request->time ? $request->time : Carbon::now()->format('H:i:s');
+            if ($nowTime >= $cutoffTime) {
+                return response()->json([
+                    'message' => 'Check-in closed: Your shift ended at ' . substr($cutoffTime, 0, 5) . '. Check-in is closed for today.',
+                ], 400);
+            }
         }
 
         // Office Location Geofence Verification: Clock-in only permitted if employee is at office place (within 500m)
@@ -78,36 +85,44 @@ class AttendanceController extends Controller
             $empLng = $request->longitude !== null ? floatval($request->longitude) : null;
 
             if ($empLat === null || $empLng === null) {
-                return response()->json([
-                    'message' => 'Office location verification required: Clock-in is only possible when you are physically at the office premises (within 500 meters). Please enable GPS location on your device.',
-                    'code' => 'LOCATION_REQUIRED',
-                    'office' => [
-                        'name' => $officeLocation['name'] ?? 'Main Office',
-                        'radius_meters' => $officeLocation['radius_meters'] ?? 500,
-                        'address' => $officeLocation['address'] ?? 'Office Premises',
-                    ]
-                ], 422);
+                if ($isAdminOrHR) {
+                    $locationVerifiedNote = 'Admin verified (Office/Remote)';
+                } else {
+                    return response()->json([
+                        'message' => 'Office location verification required: Clock-in is only possible when you are physically at the office premises (within 500 meters). Please enable GPS location on your device.',
+                        'code' => 'LOCATION_REQUIRED',
+                        'office' => [
+                            'name' => $officeLocation['name'] ?? 'Main Office',
+                            'radius_meters' => $officeLocation['radius_meters'] ?? 500,
+                            'address' => $officeLocation['address'] ?? 'Office Premises',
+                        ]
+                    ], 422);
+                }
+            } else {
+                $officeLat = floatval($officeLocation['latitude'] ?? 22.3039);
+                $officeLng = floatval($officeLocation['longitude'] ?? 73.1783);
+                $allowedRadius = floatval($officeLocation['radius_meters'] ?? 500);
+
+                $distanceMeters = $this->calculateDistanceMeters($empLat, $empLng, $officeLat, $officeLng);
+
+                if ($distanceMeters > $allowedRadius) {
+                    $distanceFormatted = $distanceMeters >= 1000 ? round($distanceMeters / 1000, 1) . ' km' : round($distanceMeters) . ' meters';
+                    if ($isAdminOrHR) {
+                        $locationVerifiedNote = "Admin override ({$distanceFormatted} from office)";
+                    } else {
+                        return response()->json([
+                            'message' => "Clock-in restricted: You must be at the office premises to clock in. You are currently {$distanceFormatted} away from {$officeLocation['name']} (Allowed radius: {$allowedRadius} meters).",
+                            'code' => 'OUTSIDE_OFFICE_GEOFENCE',
+                            'distance_meters' => round($distanceMeters),
+                            'allowed_radius_meters' => $allowedRadius,
+                            'office_name' => $officeLocation['name'] ?? 'Main Office',
+                        ], 403);
+                    }
+                } else {
+                    $distDisplay = round($distanceMeters);
+                    $locationVerifiedNote = "Verified at office ({$distDisplay}m from center)";
+                }
             }
-
-            $officeLat = floatval($officeLocation['latitude'] ?? 22.2955);
-            $officeLng = floatval($officeLocation['longitude'] ?? 73.1764);
-            $allowedRadius = floatval($officeLocation['radius_meters'] ?? 500);
-
-            $distanceMeters = $this->calculateDistanceMeters($empLat, $empLng, $officeLat, $officeLng);
-
-            if ($distanceMeters > $allowedRadius) {
-                $distanceFormatted = $distanceMeters >= 1000 ? round($distanceMeters / 1000, 1) . ' km' : round($distanceMeters) . ' meters';
-                return response()->json([
-                    'message' => "Clock-in restricted: You must be at the office premises to clock in. You are currently {$distanceFormatted} away from {$officeLocation['name']} (Allowed radius: {$allowedRadius} meters).",
-                    'code' => 'OUTSIDE_OFFICE_GEOFENCE',
-                    'distance_meters' => round($distanceMeters),
-                    'allowed_radius_meters' => $allowedRadius,
-                    'office_name' => $officeLocation['name'] ?? 'Main Office',
-                ], 403);
-            }
-
-            $distDisplay = round($distanceMeters);
-            $locationVerifiedNote = "Verified at office ({$distDisplay}m from center)";
         }
 
         $user->load('shift');
