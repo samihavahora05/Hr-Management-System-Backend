@@ -106,7 +106,7 @@ class EmployeeController extends Controller
         // Generate dynamic sequential employee code (reuses empty slots from removed employees)
         $employeeCode = User::generateNextEmployeeCode($actor->organization_id);
 
-        $plainPassword = $request->filled('password') ? $request->password : 'password123';
+        $plainPassword = $request->filled('password') ? $request->password : 'Blueboxx@2026';
 
         $shiftId = $request->shift_id ? (int) $request->shift_id : null;
         if ($request->filled('shift_start_time') && $request->filled('shift_end_time')) {

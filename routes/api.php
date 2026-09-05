@@ -33,6 +33,7 @@ use Illuminate\Http\Request;
 
 // Public Auth & Branding Routes
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:6,1');
 Route::get('/organization/branding', [AdminController::class, 'getBranding']);
 
 // Authenticated Routes
