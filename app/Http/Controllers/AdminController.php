@@ -58,7 +58,7 @@ class AdminController extends Controller
             ->get();
 
         return response()->json([
-            'organization' => Organization::find($orgId),
+            'organization' => Organization::find($orgId) ?? Organization::getDefault(),
             'headcount' => [
                 'total' => $totalUsers,
                 'active' => $activeUsers,
@@ -106,7 +106,7 @@ class AdminController extends Controller
         }
 
         if ($request->has('role') && $request->role != '') {
-            $role = Role::where('name', $request->role)->first();
+            $role = Role::getByName($request->role);
             if ($role) {
                 $query->where('role_id', $role->id);
             }
@@ -127,7 +127,7 @@ class AdminController extends Controller
     {
         $admin = $request->user();
         $request->validate([
-            'role' => 'required|string|exists:roles,name',
+            'role' => 'required|string',
         ]);
 
         $targetUser = User::where('organization_id', $admin->organization_id)->where('id', $id)->first();
@@ -140,7 +140,7 @@ class AdminController extends Controller
             return response()->json(['message' => 'The Primary Admin account is permanent and its role cannot be modified.'], 403);
         }
 
-        $role = Role::where('name', $request->role)->first();
+        $role = Role::getByName($request->role);
         $oldRole = $targetUser->role->name ?? 'None';
         $targetUser->role_id = $role->id;
         $targetUser->save();
@@ -258,14 +258,14 @@ class AdminController extends Controller
     public function getOrganization(Request $request)
     {
         $admin = $request->user();
-        $org = Organization::find($admin->organization_id);
+        $org = Organization::find($admin->organization_id) ?? Organization::getDefault();
         return response()->json(['organization' => $org]);
     }
 
     public function updateOrganization(Request $request)
     {
         $admin = $request->user();
-        $org = Organization::find($admin->organization_id);
+        $org = Organization::find($admin->organization_id) ?? Organization::getDefault();
 
         $request->validate([
             'name' => 'sometimes|string|max:255',

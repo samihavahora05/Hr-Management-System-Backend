@@ -101,7 +101,7 @@ class EmployeeController extends Controller
             'shift_id' => 'nullable|exists:shifts,id',
         ]);
 
-        $role = Role::where('name', $request->role)->first();
+        $role = Role::getByName($request->role);
 
         // Generate dynamic sequential employee code (reuses empty slots from removed employees)
         $employeeCode = User::generateNextEmployeeCode($actor->organization_id);
@@ -294,10 +294,10 @@ class EmployeeController extends Controller
             'shift_id' => 'nullable',
         ]);
 
-        $isPrimaryAdmin = $employee->id === 1 || ($employee->role && $employee->role->name === 'admin' && $employee->email === 'admin@blueboxx.com');
+        $isPrimaryAdmin = ($employee->email === 'admin@blueboxx.com') || ($employee->getCanonicalRole() === 'admin');
 
         if ($request->has('role') && !$isPrimaryAdmin) {
-            $role = Role::where('name', $request->role)->first();
+            $role = Role::getByName($request->role);
             if ($role) {
                 $employee->role_id = $role->id;
             }

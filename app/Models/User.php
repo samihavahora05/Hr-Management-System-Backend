@@ -143,6 +143,25 @@ class User extends Authenticatable
         return 'employee';
     }
 
+    public function getRoleDisplayName(): string
+    {
+        if (!$this->relationLoaded('role') && $this->role_id) {
+            $this->load('role');
+        }
+        if ($this->role && !empty($this->role->display_name)) {
+            return $this->role->display_name;
+        }
+        $canon = $this->getCanonicalRole();
+        $map = [
+            'admin' => 'Admin',
+            'hr' => 'HR Manager',
+            'manager' => 'Company Manager',
+            'team_leader' => 'Team Leader',
+            'employee' => 'Employee',
+        ];
+        return $map[$canon] ?? 'Employee';
+    }
+
     public function isAdmin(): bool
     {
         return $this->getCanonicalRole() === 'admin';
