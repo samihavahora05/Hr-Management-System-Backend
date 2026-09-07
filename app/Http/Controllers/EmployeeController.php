@@ -249,32 +249,37 @@ class EmployeeController extends Controller
         if (!in_array($roleName, ['admin', 'hr'])) {
             if (in_array($roleName, ['manager', 'company_manager', 'team_leader'])) {
                 if (($request->has('remove_from_team') && $request->remove_from_team) || ($request->has('manager_id') && ($request->manager_id === null || $request->manager_id === 'null' || $request->manager_id === 0))) {
-                    $employee->manager_id = null;
-                    $employee->save();
-                    return response()->json(['message' => 'Employee removed from team successfully', 'employee' => $employee]);
+                    // Only allow removing if employee currently reports to this manager
+                    if ($employee->manager_id === $actor->id) {
+                        $employee->manager_id = null;
+                        $employee->save();
+                        return response()->json(['message' => 'Employee removed from team successfully', 'employee' => $employee]);
+                    }
                 }
 
                 if ($request->has('manager_id') && (int)$request->manager_id === $actor->id) {
-                    $employee->manager_id = $actor->id;
-                    $employee->save();
-                    return response()->json(['message' => 'Employee added to your team successfully', 'employee' => $employee]);
+                    // Check department match or existing subordinate before claiming
+                    if ($employee->department === $actor->department || $employee->manager_id === null) {
+                        $employee->manager_id = $actor->id;
+                        $employee->save();
+                        return response()->json(['message' => 'Employee added to your team successfully', 'employee' => $employee]);
+                    }
                 }
             }
 
             if ($employee->id !== $actor->id) {
                 return response()->json(['message' => 'Unauthorized: Insufficient permissions to update employee record'], 403);
             }
-            // Self update allowed for personal and employment profile details
+
+            // Self update allowed strictly for personal profile details (prevent employee self-promoting designation/department)
             $request->validate([
                 'name' => 'sometimes|string|max:255',
-                'email' => 'sometimes|email|unique:users,email,' . $employee->id,
-                'phone' => 'nullable|string',
-                'department' => 'nullable|string',
-                'designation' => 'nullable|string',
-                'joining_date' => 'nullable|date',
+                'phone' => 'nullable|string|max:50',
                 'avatar' => 'nullable|string',
+                'gender' => 'nullable|string|max:20',
+                'dob' => 'nullable|date',
             ]);
-            $employee->fill($request->only(['name', 'email', 'phone', 'department', 'designation', 'joining_date', 'avatar']));
+            $employee->fill($request->only(['name', 'phone', 'avatar', 'gender', 'dob']));
             $employee->save();
             return response()->json(['message' => 'Profile updated successfully', 'employee' => $employee]);
         }
@@ -386,7 +391,7 @@ class EmployeeController extends Controller
         $request->validate([
             'title' => 'required|string|max:255',
             'type' => 'required|string|max:50',
-            'file' => 'nullable|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240',
+            'file' => 'required_without:file_url|file|mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png,webp|max:15360',
             'file_url' => 'nullable|string',
         ]);
 
@@ -396,9 +401,13 @@ class EmployeeController extends Controller
             $safeName = \Illuminate\Support\Str::uuid()->toString() . '.' . $uploaded->getClientOriginalExtension();
             $storedPath = $uploaded->storeAs('documents/' . $actor->organization_id, $safeName, 'local');
         } elseif ($request->filled('file_url')) {
-            $storedPath = $request->file_url;
+            $urlInput = trim($request->file_url);
+            if (str_contains($urlInput, '..') || str_starts_with($urlInput, '/') || str_contains($urlInput, '\\')) {
+                return response()->json(['message' => 'Invalid file path reference'], 422);
+            }
+            $storedPath = $urlInput;
         } else {
-            return response()->json(['message' => 'A valid document file or file_url is required.'], 422);
+            return response()->json(['message' => 'A valid document file is required.'], 422);
         }
 
         $doc = EmployeeDocument::create([

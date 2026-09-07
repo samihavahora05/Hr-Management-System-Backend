@@ -133,12 +133,24 @@ class ExpenseController extends Controller
             return response()->json(['message' => 'Unauthorized: You do not have access to this receipt'], 403);
         }
 
-        if (!Storage::disk('local')->exists($claim->receipt_url)) {
+        $receiptPath = ltrim($claim->receipt_url, '/');
+        if (str_contains($receiptPath, '..') || str_contains($receiptPath, '\\')) {
+            return response()->json(['message' => 'Invalid receipt reference'], 403);
+        }
+
+        if (!Storage::disk('local')->exists($receiptPath)) {
             return response()->json(['message' => 'Physical receipt file not found on storage'], 404);
         }
 
-        $ext = pathinfo($claim->receipt_url, PATHINFO_EXTENSION);
-        return Storage::disk('local')->download($claim->receipt_url, "receipt_claim_{$claim->id}.{$ext}");
+        $fullPath = storage_path('app/' . $receiptPath);
+        $realPath = realpath($fullPath);
+        $appStorage = realpath(storage_path('app'));
+        if (!$realPath || !str_starts_with($realPath, $appStorage)) {
+            return response()->json(['message' => 'Unauthorized receipt path access'], 403);
+        }
+
+        $ext = pathinfo($receiptPath, PATHINFO_EXTENSION);
+        return Storage::disk('local')->download($receiptPath, "receipt_claim_{$claim->id}.{$ext}");
     }
 
     public function approve(Request $request, $id)

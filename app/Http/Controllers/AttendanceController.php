@@ -51,7 +51,7 @@ class AttendanceController extends Controller
                 $cutoffTime = strlen($user->shift->end_time) === 5 ? $user->shift->end_time . ':00' : $user->shift->end_time;
             }
 
-            $nowTime = $request->time ? $request->time : Carbon::now()->format('H:i:s');
+            $nowTime = Carbon::now()->format('H:i:s');
             if ($nowTime >= $cutoffTime) {
                 return response()->json([
                     'message' => 'Check-in closed: Your shift ended at ' . substr($cutoffTime, 0, 5) . '. Check-in is closed for today.',
@@ -126,7 +126,7 @@ class AttendanceController extends Controller
         }
 
         $user->load('shift');
-        $nowTime = $request->time ? $request->time : Carbon::now()->format('H:i:s');
+        $nowTime = Carbon::now()->format('H:i:s');
 
         // Dynamic 15-Minute Grace Period Evaluation
         $startTime = '10:00:00';
@@ -224,7 +224,7 @@ class AttendanceController extends Controller
             $cutoffTime = strlen($user->shift->end_time) === 5 ? $user->shift->end_time . ':00' : $user->shift->end_time;
         }
 
-        $nowTime = $request->time ? $request->time : Carbon::now()->format('H:i:s');
+        $nowTime = Carbon::now()->format('H:i:s');
 
         // If clocking out at or past shift end (e.g. past 6:00 PM / Sat 2:00 PM)
         if ($nowTime >= $cutoffTime) {

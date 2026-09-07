@@ -12,6 +12,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->prepend(\App\Http\Middleware\SecurityHeadersMiddleware::class);
         $middleware->prepend(\App\Http\Middleware\CorsMiddleware::class);
         $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
         $middleware->alias([

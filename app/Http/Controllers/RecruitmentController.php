@@ -80,6 +80,12 @@ class RecruitmentController extends Controller
     public function getCandidates(Request $request)
     {
         $user = $request->user();
+        $role = $user->getCanonicalRole();
+
+        if (!in_array($role, ['admin', 'hr', 'manager', 'company_manager'])) {
+            return response()->json(['message' => 'Unauthorized: Only HR, Managers, or Admins can view recruitment candidates'], 403);
+        }
+
         $query = Candidate::where('organization_id', $user->organization_id)
             ->with(['jobOpening', 'interviews.interviewer', 'offer']);
 

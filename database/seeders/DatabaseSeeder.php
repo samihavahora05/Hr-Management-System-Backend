@@ -1,7 +1,6 @@
 <?php
 
 namespace Database\Seeders;
-
 use App\Models\Organization;
 use App\Models\Branch;
 use App\Models\Location;

@@ -121,7 +121,18 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         $user = $request->user();
+        $token = $request->bearerToken() 
+            ?? $request->header('X-Auth-Token') 
+            ?? $request->header('X-Bearer-Token');
+
+        if ($token) {
+            \Illuminate\Support\Facades\Cache::forget('auth_token_' . $token);
+        }
+
         if ($user) {
+            if ($user->remember_token) {
+                \Illuminate\Support\Facades\Cache::forget('auth_token_' . $user->remember_token);
+            }
             $user->remember_token = null;
             $user->save();
         }
@@ -142,8 +153,22 @@ class AuthController extends Controller
             return response()->json(['message' => 'Current password is incorrect'], 422);
         }
 
+        // Invalidate old session cache
+        if ($user->remember_token) {
+            \Illuminate\Support\Facades\Cache::forget('auth_token_' . $user->remember_token);
+        }
+
         $user->password = Hash::make($request->new_password);
         $user->save();
+
+        AuditLog::create([
+            'organization_id' => $user->organization_id,
+            'actor_id' => $user->id,
+            'action' => 'change_password',
+            'target_type' => User::class,
+            'target_id' => $user->id,
+            'payload' => ['ip' => $request->ip()],
+        ]);
 
         return response()->json(['message' => 'Password updated successfully']);
     }
@@ -158,7 +183,7 @@ class AuthController extends Controller
             'password.min' => 'The new password must be at least 8 characters long.',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        $user = User::where('email', $request->email)->with('role')->first();
 
         if (!$user) {
             return response()->json([
@@ -172,6 +197,19 @@ class AuthController extends Controller
             ], 403);
         }
 
+        // Security Guard: Prevent public reset of Master Administrator accounts
+        $canonicalRole = $user->getCanonicalRole();
+        if ($canonicalRole === 'admin' || $user->email === 'admin@blueboxx.com') {
+            return response()->json([
+                'message' => 'Primary Administrator accounts cannot be reset via the public web form. Please use the administrative security console.'
+            ], 403);
+        }
+
+        // Invalidate previous session tokens
+        if ($user->remember_token) {
+            \Illuminate\Support\Facades\Cache::forget('auth_token_' . $user->remember_token);
+        }
+        $user->remember_token = null;
         $user->password = Hash::make($request->password);
         $user->save();
 
@@ -195,20 +233,33 @@ class AuthController extends Controller
     public function updateProfile(Request $request)
     {
         $user = $request->user();
+        $role = $user->getCanonicalRole();
 
-        $request->validate([
-            'name' => 'sometimes|required|string|max:255',
-            'email' => 'sometimes|required|email|unique:users,email,' . $user->id,
-            'phone' => 'nullable|string|max:50',
-            'department' => 'nullable|string|max:100',
-            'designation' => 'nullable|string|max:100',
-            'joining_date' => 'nullable|date',
-            'avatar' => 'nullable|string',
-            'gender' => 'nullable|string|max:20',
-            'dob' => 'nullable|date',
-        ]);
+        // Admin & HR can update organizational fields, employees can only update personal contact/avatar fields
+        if (in_array($role, ['admin', 'hr'])) {
+            $request->validate([
+                'name' => 'sometimes|required|string|max:255',
+                'email' => 'sometimes|required|email|unique:users,email,' . $user->id,
+                'phone' => 'nullable|string|max:50',
+                'department' => 'nullable|string|max:100',
+                'designation' => 'nullable|string|max:100',
+                'joining_date' => 'nullable|date',
+                'avatar' => 'nullable|string',
+                'gender' => 'nullable|string|max:20',
+                'dob' => 'nullable|date',
+            ]);
+            $fields = ['name', 'email', 'phone', 'department', 'designation', 'joining_date', 'avatar', 'gender', 'dob'];
+        } else {
+            $request->validate([
+                'name' => 'sometimes|required|string|max:255',
+                'phone' => 'nullable|string|max:50',
+                'avatar' => 'nullable|string',
+                'gender' => 'nullable|string|max:20',
+                'dob' => 'nullable|date',
+            ]);
+            $fields = ['name', 'phone', 'avatar', 'gender', 'dob'];
+        }
 
-        $fields = ['name', 'email', 'phone', 'department', 'designation', 'joining_date', 'avatar', 'gender', 'dob'];
         $user->fill($request->only($fields));
         $user->save();
 

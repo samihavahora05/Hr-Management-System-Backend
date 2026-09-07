@@ -149,6 +149,15 @@ class DocumentController extends Controller
     private function getDocumentContent(EmployeeDocument $doc): array
     {
         $filePath = ltrim($doc->file_url, '/');
+        // Prevent path traversal sequences
+        if (str_contains($filePath, '..') || str_contains($filePath, '\\')) {
+            return [
+                'content' => $this->generateSamplePdf($doc->title, $doc->user, $doc->type, $doc->created_at),
+                'ext' => 'pdf',
+                'contentType' => 'application/pdf',
+            ];
+        }
+
         $mimeMap = [
             'pdf'  => 'application/pdf',
             'png'  => 'image/png',
@@ -167,31 +176,32 @@ class DocumentController extends Controller
             'doc'  => 'application/msword',
         ];
 
+        $appStorage = realpath(storage_path());
+
         if (Storage::disk('local')->exists($filePath)) {
-            $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
-            return [
-                'content' => Storage::disk('local')->get($filePath),
-                'ext' => $ext ?: 'pdf',
-                'contentType' => $mimeMap[$ext] ?? 'application/octet-stream',
-            ];
+            $fullPath = Storage::disk('local')->path($filePath);
+            $realPath = realpath($fullPath);
+            if ($realPath && $appStorage && str_starts_with($realPath, $appStorage)) {
+                $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+                return [
+                    'content' => Storage::disk('local')->get($filePath),
+                    'ext' => $ext ?: 'pdf',
+                    'contentType' => $mimeMap[$ext] ?? 'application/octet-stream',
+                ];
+            }
         }
 
         if (Storage::disk('public')->exists($filePath)) {
-            $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
-            return [
-                'content' => Storage::disk('public')->get($filePath),
-                'ext' => $ext ?: 'pdf',
-                'contentType' => $mimeMap[$ext] ?? 'application/octet-stream',
-            ];
-        }
-
-        if (file_exists(storage_path('app/' . $filePath))) {
-            $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
-            return [
-                'content' => file_get_contents(storage_path('app/' . $filePath)),
-                'ext' => $ext ?: 'pdf',
-                'contentType' => $mimeMap[$ext] ?? 'application/octet-stream',
-            ];
+            $fullPath = Storage::disk('public')->path($filePath);
+            $realPath = realpath($fullPath);
+            if ($realPath && $appStorage && str_starts_with($realPath, $appStorage)) {
+                $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+                return [
+                    'content' => Storage::disk('public')->get($filePath),
+                    'ext' => $ext ?: 'pdf',
+                    'contentType' => $mimeMap[$ext] ?? 'application/octet-stream',
+                ];
+            }
         }
 
         // Generate high quality fallback PDF so viewing seeded/archived documents never throws 404
@@ -329,12 +339,15 @@ class DocumentController extends Controller
         $data = $this->getDocumentContent($doc);
         $filename = (Str::slug($doc->title) ?: 'document') . '.' . $data['ext'];
 
-        return response($data['content'], 200, [
+        $headers = [
             'Content-Type' => $data['contentType'],
             'Content-Disposition' => "inline; filename=\"{$filename}\"",
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'no-cache, private',
-        ]);
+            'Content-Security-Policy' => "default-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'none';",
+        ];
+
+        return response($data['content'], 200, $headers);
     }
 
     public function destroy(Request $request, $id)

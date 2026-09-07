@@ -53,6 +53,12 @@ class TokenAuthMiddleware
             return response()->json(['message' => 'Invalid or expired token'], 401);
         }
 
+        // Enforce active account status (immediately block deactivated/terminated accounts)
+        if ($user->status !== 'active') {
+            Cache::forget('auth_token_' . $token);
+            return response()->json(['message' => 'Your account is inactive. Please contact HR.'], 403);
+        }
+
         // Cache token for resilience
         Cache::put('auth_token_' . $token, $user->id, now()->addDays(30));
 

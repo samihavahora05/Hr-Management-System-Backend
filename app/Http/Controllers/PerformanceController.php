@@ -74,6 +74,7 @@ class PerformanceController extends Controller
     public function storeGoal(Request $request)
     {
         $actor = $request->user();
+        $role = $actor->getCanonicalRole();
 
         $request->validate([
             'title' => 'required|string',
@@ -83,15 +84,28 @@ class PerformanceController extends Controller
             'cycle_id' => 'nullable|exists:performance_cycles,id',
         ]);
 
+        $targetUserId = (int) $request->user_id;
+
         // Scoping check
-        if ($actor->getCanonicalRole() === 'employee' && (int)$request->user_id !== $actor->id) {
+        if ($role === 'employee' && $targetUserId !== (int) $actor->id) {
             return response()->json(['message' => 'Unauthorized: Employees can only set goals for themselves'], 403);
+        } elseif (in_array($role, ['manager', 'team_leader'])) {
+            $allowedReportIds = User::where('organization_id', $actor->organization_id)
+                ->where(function ($q) use ($actor) {
+                    $q->where('manager_id', $actor->id)->orWhere('id', $actor->id);
+                })
+                ->pluck('id')
+                ->toArray();
+
+            if (!in_array($targetUserId, $allowedReportIds)) {
+                return response()->json(['message' => 'Unauthorized: You can only create goals for your direct team members'], 403);
+            }
         }
 
         $goal = Goal::create([
             'organization_id' => $actor->organization_id,
             'cycle_id' => $request->cycle_id,
-            'user_id' => $request->user_id,
+            'user_id' => $targetUserId,
             'title' => $request->title,
             'description' => $request->description,
             'target_value' => $request->target_value ?? 100,
@@ -106,10 +120,27 @@ class PerformanceController extends Controller
     public function updateGoalProgress(Request $request, $id)
     {
         $actor = $request->user();
+        $role = $actor->getCanonicalRole();
+
         $goal = Goal::where('organization_id', $actor->organization_id)->where('id', $id)->first();
 
         if (!$goal) {
             return response()->json(['message' => 'Goal not found'], 404);
+        }
+
+        $isOwner = (int) $goal->user_id === (int) $actor->id;
+        $isManager = false;
+        if (in_array($role, ['manager', 'team_leader'])) {
+            $allowedSubIds = User::where('organization_id', $actor->organization_id)
+                ->where('manager_id', $actor->id)
+                ->pluck('id')
+                ->toArray();
+            $isManager = in_array($goal->user_id, $allowedSubIds);
+        }
+        $isAdminOrHr = in_array($role, ['admin', 'hr']);
+
+        if (!$isOwner && !$isManager && !$isAdminOrHr) {
+            return response()->json(['message' => 'Unauthorized: You do not have permission to update this goal.'], 403);
         }
 
         $request->validate([
@@ -119,14 +150,23 @@ class PerformanceController extends Controller
         ]);
 
         $goal->current_value = $request->current_value;
-        if ($request->has('status')) {
-            $goal->status = $request->status;
-        } elseif ($goal->current_value >= $goal->target_value) {
-            $goal->status = 'achieved';
-        }
 
-        if ($request->filled('manager_comment')) {
-            $goal->manager_comment = $request->manager_comment;
+        if ($isManager || $isAdminOrHr) {
+            if ($request->has('status')) {
+                $goal->status = $request->status;
+            } elseif ($goal->current_value >= $goal->target_value) {
+                $goal->status = 'achieved';
+            }
+            if ($request->filled('manager_comment')) {
+                $goal->manager_comment = $request->manager_comment;
+            }
+        } else {
+            // Employee self-update
+            if ($goal->current_value >= $goal->target_value) {
+                $goal->status = 'achieved';
+            } else {
+                $goal->status = 'in_progress';
+            }
         }
 
         $goal->save();

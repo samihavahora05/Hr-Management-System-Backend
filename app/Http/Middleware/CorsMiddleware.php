@@ -16,15 +16,47 @@ class CorsMiddleware
      */
     public function handle(Request $request, Closure $next)
     {
-        $origin = $request->header('Origin') ?: '*';
+        $trustedOrigins = [
+            'https://hrms.blueboxx.in',
+            'http://hrms.blueboxx.in',
+            'https://hrms_backend.blueboxx.in',
+            'http://hrms_backend.blueboxx.in',
+            'http://localhost:3000',
+            'http://localhost:8000',
+            'http://127.0.0.1:3000',
+            'http://127.0.0.1:8000',
+        ];
+
+        $appUrl = config('app.url');
+        if ($appUrl) {
+            $trustedOrigins[] = rtrim($appUrl, '/');
+        }
+
+        $incomingOrigin = $request->header('Origin');
+        $isTrusted = false;
+        $allowOrigin = 'https://hrms.blueboxx.in';
+
+        if ($incomingOrigin) {
+            $normalized = rtrim($incomingOrigin, '/');
+            if (in_array($normalized, $trustedOrigins, true) || preg_match('/^https?:\/\/([a-zA-Z0-9-]+\.)?blueboxx\.in(:\d+)?$/', $normalized)) {
+                $isTrusted = true;
+                $allowOrigin = $incomingOrigin;
+            }
+        } elseif (!$request->isMethod('OPTIONS')) {
+            $isTrusted = true;
+            $allowOrigin = '*';
+        }
 
         $headers = [
-            'Access-Control-Allow-Origin'      => $origin,
-            'Access-Control-Allow-Methods'     => 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers'     => 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Application, X-CSRF-TOKEN, X-XSRF-TOKEN',
-            'Access-Control-Allow-Credentials' => 'true',
-            'Access-Control-Max-Age'           => '86400',
+            'Access-Control-Allow-Origin'  => $allowOrigin,
+            'Access-Control-Allow-Methods' => 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Application, X-CSRF-TOKEN, X-XSRF-TOKEN, X-Auth-Token, X-Bearer-Token',
+            'Access-Control-Max-Age'       => '86400',
         ];
+
+        if ($isTrusted && $allowOrigin !== '*') {
+            $headers['Access-Control-Allow-Credentials'] = 'true';
+        }
 
         // Directly handle preflight OPTIONS requests with 200 OK
         if ($request->isMethod('OPTIONS')) {

@@ -76,23 +76,69 @@ class AssistantController extends Controller
         $payload = $request->action_payload ?? [];
 
         if ($type === 'approve_all_pending_leaves') {
-            if (!in_array($role, ['admin', 'hr', 'manager', 'team_leader'])) {
-                return response()->json(['message' => 'Unauthorized to approve leave requests'], 403);
+            if ($role !== 'admin') {
+                return response()->json(['message' => 'Unauthorized: Only Administrator has authority to approve leave requests'], 403);
             }
 
-            $query = LeaveRequest::where('organization_id', $orgId)->where('status', 'pending');
-            if (in_array($role, ['manager', 'team_leader'])) {
-                $subordinateIds = User::where('organization_id', $orgId)->where('manager_id', $user->id)->pluck('id');
-                $query->whereIn('user_id', $subordinateIds);
-            }
+            $pending = LeaveRequest::where('organization_id', $orgId)
+                ->where('status', 'pending')
+                ->with(['user', 'leaveType'])
+                ->get();
 
-            $pending = $query->get();
             $count = 0;
             foreach ($pending as $lr) {
                 $lr->status = 'approved';
                 $lr->approver_id = $user->id;
-                $lr->approved_at = now();
                 $lr->save();
+
+                // Deduct from leave balance
+                $balance = \App\Models\LeaveBalance::where('organization_id', $orgId)
+                    ->where('user_id', $lr->user_id)
+                    ->where('leave_type_id', $lr->leave_type_id)
+                    ->first();
+
+                if ($balance) {
+                    $balance->used += $lr->days_count;
+                    $balance->remaining = max(0, $balance->allocated - $balance->used);
+                    $balance->save();
+                }
+
+                // Auto-mark attendance as 'on_leave' for non-weekend dates in range
+                $start = Carbon::parse($lr->start_date);
+                $end = Carbon::parse($lr->end_date);
+                for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
+                    if (!$date->isWeekend()) {
+                        $dateStr = $date->format('Y-m-d');
+                        $att = Attendance::where('organization_id', $orgId)
+                            ->where('user_id', $lr->user_id)
+                            ->whereDate('date', $dateStr)
+                            ->first();
+
+                        if ($att) {
+                            $att->status = 'on_leave';
+                            $att->notes = 'Approved Leave Request #' . $lr->id;
+                            $att->save();
+                        } else {
+                            Attendance::create([
+                                'organization_id' => $orgId,
+                                'user_id' => $lr->user_id,
+                                'date' => $dateStr,
+                                'status' => 'on_leave',
+                                'notes' => 'Approved Leave Request #' . $lr->id,
+                            ]);
+                        }
+                    }
+                }
+
+                NotificationService::create(
+                    $orgId,
+                    $lr->user_id,
+                    'Leave Request Approved',
+                    "Your leave request from {$lr->start_date} to {$lr->end_date} was approved by Administrator.",
+                    'success',
+                    '/employee/leave'
+                );
+
                 $count++;
             }
 
@@ -106,7 +152,7 @@ class AssistantController extends Controller
             ]);
 
             return response()->json([
-                'message' => "Successfully approved {$count} pending leave requests.",
+                'message' => "Successfully approved and synchronized {$count} pending leave requests.",
                 'approved_count' => $count,
             ]);
         }

@@ -368,11 +368,13 @@ class TaskController extends Controller
     }
 
     /**
-     * Show task details
+     * Show task details with role scoping
      */
     public function show(Request $request, $id)
     {
         $user = $request->user();
+        $role = $this->getRoleName($user);
+
         $task = Task::where('organization_id', $user->organization_id)
             ->where('id', $id)
             ->with([
@@ -387,6 +389,34 @@ class TaskController extends Controller
 
         if (!$task) {
             return response()->json(['message' => 'Task not found'], 404);
+        }
+
+        // Authorization check matching index scoping
+        $isAuthorized = false;
+        if (in_array($role, ['admin', 'hr'])) {
+            $isAuthorized = true;
+        } elseif ((int)$task->assigned_to === (int)$user->id || (int)$task->assigner_id === (int)$user->id) {
+            $isAuthorized = true;
+        } elseif ($role === 'team_leader') {
+            $teamEmpIds = User::where('organization_id', $user->organization_id)
+                ->where('manager_id', $user->id)
+                ->pluck('id')
+                ->toArray();
+            $isAuthorized = in_array($task->assigned_to, $teamEmpIds);
+        } elseif ($role === 'manager') {
+            $teamLeaderIds = User::where('organization_id', $user->organization_id)
+                ->where('manager_id', $user->id)
+                ->pluck('id')
+                ->toArray();
+            $teamEmpIds = User::where('organization_id', $user->organization_id)
+                ->whereIn('manager_id', array_merge([$user->id], $teamLeaderIds))
+                ->pluck('id')
+                ->toArray();
+            $isAuthorized = in_array($task->assigned_to, array_merge($teamLeaderIds, $teamEmpIds));
+        }
+
+        if (!$isAuthorized) {
+            return response()->json(['message' => 'Unauthorized: You do not have permission to view this task.'], 403);
         }
 
         return response()->json(['task' => $task]);

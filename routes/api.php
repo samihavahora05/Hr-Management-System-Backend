@@ -46,8 +46,8 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
 
     // Departments & Shifts
     Route::get('/departments', [DepartmentController::class, 'index']);
-    Route::post('/departments', [DepartmentController::class, 'store']);
-    Route::delete('/departments/{id}', [DepartmentController::class, 'destroy']);
+    Route::post('/departments', [DepartmentController::class, 'store'])->middleware('role:admin,hr');
+    Route::delete('/departments/{id}', [DepartmentController::class, 'destroy'])->middleware('role:admin,hr');
     Route::get('/shifts', function (\Illuminate\Http\Request $request) {
         $user = $request->user();
         $shifts = \App\Models\Shift::where('organization_id', $user->organization_id)->get();
@@ -70,7 +70,7 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
             'work_days' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
         ]);
         return response()->json(['message' => 'Custom shift timing created successfully', 'shift' => $shift]);
-    });
+    })->middleware('role:admin,hr');
     Route::put('/shifts/{id}', function (\Illuminate\Http\Request $request, $id) {
         $user = $request->user();
         $shift = \App\Models\Shift::where('organization_id', $user->organization_id)->where('id', $id)->first();
@@ -85,7 +85,7 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
         ]);
         $shift->update($request->only(['name', 'start_time', 'end_time', 'grace_period_minutes']));
         return response()->json(['message' => 'Shift timing updated successfully', 'shift' => $shift]);
-    });
+    })->middleware('role:admin,hr');
     Route::delete('/shifts/{id}', function (\Illuminate\Http\Request $request, $id) {
         $user = $request->user();
         $shift = \App\Models\Shift::where('organization_id', $user->organization_id)->where('id', $id)->first();
@@ -95,7 +95,7 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
         \App\Models\User::where('shift_id', $id)->update(['shift_id' => null]);
         $shift->delete();
         return response()->json(['message' => 'Shift deleted successfully']);
-    });
+    })->middleware('role:admin,hr');
 
     // Employee Profile & Master Record
     Route::get('/employees', [EmployeeController::class, 'index']);
@@ -103,11 +103,11 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::get('/employees/{id}', [EmployeeController::class, 'show']);
     Route::put('/employees/{id}', [EmployeeController::class, 'update']);
     Route::delete('/employees/{id}', [EmployeeController::class, 'destroy'])->middleware('role:admin,hr');
-    Route::post('/employees/{id}/documents', [EmployeeController::class, 'uploadDocument']);
+    Route::post('/employees/{id}/documents', [EmployeeController::class, 'uploadDocument'])->middleware('throttle:30,1');
 
     // Attendance
-    Route::post('/attendance/check-in', [AttendanceController::class, 'checkIn']);
-    Route::post('/attendance/check-out', [AttendanceController::class, 'checkOut']);
+    Route::post('/attendance/check-in', [AttendanceController::class, 'checkIn'])->middleware('throttle:30,1');
+    Route::post('/attendance/check-out', [AttendanceController::class, 'checkOut'])->middleware('throttle:30,1');
     Route::post('/attendance/auto-checkout', [AttendanceController::class, 'triggerAutoCheckout']);
     Route::get('/attendance/history', [AttendanceController::class, 'history']);
     Route::get('/attendance/summary', [AttendanceController::class, 'summary']);
@@ -122,7 +122,7 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::get('/leave/types', [LeaveController::class, 'getLeaveTypes']);
     Route::get('/leave/balances', [LeaveController::class, 'getBalances']);
     Route::get('/leave/requests', [LeaveController::class, 'index']);
-    Route::post('/leave/requests', [LeaveController::class, 'store']);
+    Route::post('/leave/requests', [LeaveController::class, 'store'])->middleware('throttle:30,1');
     Route::post('/leave/requests/{id}/approve', [LeaveController::class, 'approve'])->middleware('role:admin');
     Route::post('/leave/requests/{id}/reject', [LeaveController::class, 'reject'])->middleware('role:admin');
     Route::post('/leave/requests/{id}/cancel', [LeaveController::class, 'cancel']);
@@ -130,36 +130,37 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     // Recruitment & ATS Module
     Route::get('/recruitment/openings', [RecruitmentController::class, 'getOpenings']);
     Route::post('/recruitment/openings', [RecruitmentController::class, 'storeOpening'])->middleware('role:admin,hr');
-    Route::get('/recruitment/candidates', [RecruitmentController::class, 'getCandidates']);
-    Route::post('/recruitment/candidates', [RecruitmentController::class, 'storeCandidate']);
-    Route::put('/recruitment/candidates/{id}/stage', [RecruitmentController::class, 'updateCandidateStage']);
-    Route::post('/recruitment/interviews', [RecruitmentController::class, 'scheduleInterview']);
+    Route::get('/recruitment/candidates', [RecruitmentController::class, 'getCandidates'])->middleware('role:admin,hr,manager');
+    Route::post('/recruitment/candidates', [RecruitmentController::class, 'storeCandidate'])->middleware('role:admin,hr');
+    Route::put('/recruitment/candidates/{id}/stage', [RecruitmentController::class, 'updateCandidateStage'])->middleware('role:admin,hr');
+    Route::post('/recruitment/interviews', [RecruitmentController::class, 'scheduleInterview'])->middleware('role:admin,hr,manager');
     Route::post('/recruitment/candidates/{id}/onboard', [RecruitmentController::class, 'issueOfferAndConvert'])->middleware('role:admin,hr');
 
     // Performance Management
     Route::get('/performance/cycles', [PerformanceController::class, 'getCycles']);
     Route::post('/performance/cycles', [PerformanceController::class, 'createCycle'])->middleware('role:admin,hr');
     Route::get('/performance/reviews', [PerformanceController::class, 'getReviews']);
-    Route::post('/performance/reviews', [PerformanceController::class, 'submitReview']);
+    Route::post('/performance/reviews/{id}', [PerformanceController::class, 'submitReview']);
     Route::get('/performance/goals', [PerformanceController::class, 'getGoals']);
     Route::post('/performance/goals', [PerformanceController::class, 'storeGoal']);
+    Route::put('/performance/goals/{id}', [PerformanceController::class, 'updateGoalProgress']);
 
     // Expenses & Reimbursements
     Route::get('/expenses', [ExpenseController::class, 'index']);
-    Route::post('/expenses', [ExpenseController::class, 'store']);
+    Route::post('/expenses', [ExpenseController::class, 'store'])->middleware('throttle:30,1');
     Route::get('/expenses/{id}/receipt', [ExpenseController::class, 'downloadReceipt']);
     Route::post('/expenses/{id}/approve', [ExpenseController::class, 'approve'])->middleware('role:admin,hr');
     Route::post('/expenses/{id}/reject', [ExpenseController::class, 'reject'])->middleware('role:admin,hr');
 
     // Loans & Advances
     Route::get('/loans', [LoanController::class, 'index']);
-    Route::post('/loans', [LoanController::class, 'store']);
+    Route::post('/loans', [LoanController::class, 'store'])->middleware('throttle:30,1');
     Route::post('/loans/{id}/approve', [LoanController::class, 'approve'])->middleware('role:admin,hr');
 
     // Payroll & Salary Slips (Admin-Exclusive management + Employee-Scoped view)
     Route::get('/payroll', [PayrollController::class, 'index'])->middleware('role:admin');
     Route::post('/payroll', [PayrollController::class, 'store'])->middleware('role:admin');
-    Route::post('/payroll/bulk-generate', [PayrollController::class, 'bulkGenerate'])->middleware('role:admin');
+    Route::post('/payroll/bulk-generate', [PayrollController::class, 'bulkGenerate'])->middleware(['role:admin', 'throttle:10,1']);
     Route::get('/payroll/{id}', [PayrollController::class, 'show']);
     Route::put('/payroll/{id}', [PayrollController::class, 'update'])->middleware('role:admin');
     Route::post('/payroll/{id}/mark-paid', [PayrollController::class, 'markPaid'])->middleware('role:admin');
@@ -185,12 +186,16 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::match(['get', 'post', 'put'], '/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
     Route::match(['get', 'post', 'put'], '/notifications/read-all', [NotificationController::class, 'markAllRead']);
 
-    // Document Management
+    // Document Vault & Master Documents
     Route::get('/documents', [DocumentController::class, 'index']);
-    Route::post('/documents', [DocumentController::class, 'upload']);
+    Route::post('/documents', [DocumentController::class, 'upload'])->middleware('throttle:30,1');
     Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
     Route::get('/documents/{id}/view', [DocumentController::class, 'view']);
     Route::delete('/documents/{id}', [DocumentController::class, 'destroy']);
+
+    // Role-Aware Assistant
+    Route::post('/assistant/ask', [AssistantController::class, 'ask'])->middleware('throttle:30,1');
+    Route::post('/assistant/execute', [AssistantController::class, 'executeAction'])->middleware('throttle:15,1');
 
     // Reports
     Route::get('/reports/headcount', [ReportController::class, 'headcountReport'])->middleware('role:admin,hr');
@@ -202,13 +207,6 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::get('/reports/monthly-attendance/stored', [MonthlyAttendanceReportController::class, 'storedList'])->middleware('role:admin');
     Route::get('/reports/monthly-attendance/stored/{id}', [MonthlyAttendanceReportController::class, 'showStored'])->middleware('role:admin');
     Route::delete('/reports/monthly-attendance/stored/{id}', [MonthlyAttendanceReportController::class, 'destroyStored'])->middleware('role:admin');
-
-    // Document Vault & Daily Work Reports
-    Route::get('/documents', [DocumentController::class, 'index']);
-    Route::post('/documents', [DocumentController::class, 'upload']);
-    Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
-    Route::get('/documents/{id}/view', [DocumentController::class, 'view']);
-    Route::delete('/documents/{id}', [DocumentController::class, 'destroy']);
 
     // Announcements
     Route::get('/announcements', [AnnouncementController::class, 'index']);
