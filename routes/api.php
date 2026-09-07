@@ -47,6 +47,7 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     // Departments & Shifts
     Route::get('/departments', [DepartmentController::class, 'index']);
     Route::post('/departments', [DepartmentController::class, 'store']);
+    Route::delete('/departments/{id}', [DepartmentController::class, 'destroy']);
     Route::get('/shifts', function (\Illuminate\Http\Request $request) {
         $user = $request->user();
         $shifts = \App\Models\Shift::where('organization_id', $user->organization_id)->get();
