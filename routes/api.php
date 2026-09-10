@@ -222,15 +222,24 @@ Route::middleware(TokenAuthMiddleware::class)->group(function () {
     Route::get('/insights', [InsightsController::class, 'index'])->middleware('role:admin,hr');
     Route::post('/insights/scan', [InsightsController::class, 'triggerScan'])->middleware('role:admin,hr');
 
-    // Tasks & Todo Tasker
+    // Tasks & Verification Lifecycle Management
     Route::get('/dashboard/stats', [TaskController::class, 'dashboardStats']);
     Route::get('/tasks', [TaskController::class, 'index']);
-    Route::get('/tasks/performance', [TaskController::class, 'employeePerformance'])->middleware('role:admin');
+    Route::get('/tasks/performance', [TaskController::class, 'employeePerformance'])->middleware('role:admin,hr,manager,team_leader');
+    Route::get('/tasks/my-performance', [TaskController::class, 'employeeSelfPerformance']);
     Route::post('/tasks', [TaskController::class, 'store']);
     Route::get('/tasks/assignable-users', [TaskController::class, 'assignableUsers']);
     Route::get('/tasks/{id}', [TaskController::class, 'show']);
     Route::put('/tasks/{id}', [TaskController::class, 'update']);
     Route::put('/tasks/{id}/status', [TaskController::class, 'updateStatus']);
+    Route::post('/tasks/{id}/start', [TaskController::class, 'start']);
+    Route::post('/tasks/{id}/submit', [TaskController::class, 'submit'])->middleware('throttle:30,1');
+    Route::post('/tasks/{id}/review', [TaskController::class, 'review'])->middleware('role:admin,hr,manager,team_leader');
+    Route::put('/tasks/{id}/marks', [TaskController::class, 'updateMarks'])->middleware('role:admin,hr,manager');
+    Route::get('/tasks/{id}/submissions', [TaskController::class, 'submissions']);
+    Route::get('/tasks/{id}/history', [TaskController::class, 'history']);
+    Route::get('/tasks/{taskId}/files/{fileId}/download', [TaskController::class, 'downloadProofFile']);
+    Route::get('/tasks/{taskId}/files/{fileId}/view', [TaskController::class, 'viewProofFile']);
     Route::post('/tasks/{id}/toggle-subtask', [TaskController::class, 'toggleSubtask']);
     Route::delete('/tasks/{id}', [TaskController::class, 'destroy']);
 
