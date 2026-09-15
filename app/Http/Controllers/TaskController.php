@@ -22,6 +22,11 @@ class TaskController extends Controller
     private function ensureSchemaIntegrity(): void
     {
         try {
+            $driver = \Illuminate\Support\Facades\DB::connection()->getDriverName();
+            if ($driver === 'mysql') {
+                \Illuminate\Support\Facades\DB::statement("ALTER TABLE `tasks` MODIFY COLUMN `status` VARCHAR(50) NOT NULL DEFAULT 'todo'");
+                \Illuminate\Support\Facades\DB::statement("ALTER TABLE `tasks` MODIFY COLUMN `priority` VARCHAR(50) NOT NULL DEFAULT 'medium'");
+            }
             if (!\Illuminate\Support\Facades\Schema::hasColumn('tasks', 'maximum_marks')) {
                 \Illuminate\Support\Facades\Schema::table('tasks', function (\Illuminate\Database\Schema\Blueprint $table) {
                     $table->integer('maximum_marks')->default(100);
