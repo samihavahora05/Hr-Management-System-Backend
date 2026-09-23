@@ -14,8 +14,10 @@ class TaskPerformanceService
     public static function calculateEmployeePerformance(User $employee, ?string $startDate = null, ?string $endDate = null): array
     {
         $today = Carbon::today();
-        $query = Task::where('assigned_to', $employee->id)
-            ->where('organization_id', $employee->organization_id);
+        $query = Task::where('assigned_to', $employee->id);
+        if (!empty($employee->organization_id)) {
+            $query->where('organization_id', $employee->organization_id);
+        }
 
         if ($startDate) {
             $query->where('created_at', '>=', Carbon::parse($startDate)->startOfDay());
@@ -42,13 +44,13 @@ class TaskPerformanceService
             );
         })->count();
 
-        // Calculate marks strictly from APPROVED tasks with admin-awarded marks
-        $approvedTasksWithMarks = $tasks->filter(function ($t) {
-            return in_array($t->status, ['approved', 'completed']) && $t->marks_awarded !== null;
-        });
+        // Calculate marks: for approved/completed tasks, count marks_awarded (or default to 100% of maximum_marks if previously approved)
+        $approvedTasks = $tasks->filter(fn($t) => in_array($t->status, ['approved', 'completed']));
 
-        $totalEarnedMarks = (int) $approvedTasksWithMarks->sum('marks_awarded');
-        $totalPossibleMarks = (int) $approvedTasksWithMarks->sum(fn($t) => max(1, $t->maximum_marks ?? 100));
+        $totalEarnedMarks = (int) $approvedTasks->sum(function ($t) {
+            return $t->marks_awarded !== null ? (int)$t->marks_awarded : (int)($t->maximum_marks ?: 100);
+        });
+        $totalPossibleMarks = (int) $approvedTasks->sum(fn($t) => max(1, $t->maximum_marks ?: 100));
 
         $performancePercentage = $totalPossibleMarks > 0
             ? round(($totalEarnedMarks / $totalPossibleMarks) * 100, 1)

@@ -1343,7 +1343,7 @@ class TaskController extends Controller
 
         $query = User::where('organization_id', $user->organization_id)
             ->where('status', 'active')
-            ->select('id', 'name', 'email', 'employee_code', 'department', 'designation', 'avatar', 'role_id')
+            ->select('id', 'organization_id', 'name', 'email', 'employee_code', 'department', 'designation', 'avatar', 'role_id')
             ->with('role:id,name,display_name');
 
         if ($role === 'team_leader') {
@@ -1371,12 +1371,22 @@ class TaskController extends Controller
 
         $performances = $employees->map(function ($emp) use ($startDate, $endDate) {
             return TaskPerformanceService::calculateEmployeePerformance($emp, $startDate, $endDate);
-        })->sortByDesc('performance_percentage')->values();
+        })->sort(function ($a, $b) {
+            if ($a['total_tasks'] > 0 && $b['total_tasks'] === 0) return -1;
+            if ($a['total_tasks'] === 0 && $b['total_tasks'] > 0) return 1;
+            if ($b['performance_percentage'] != $a['performance_percentage']) {
+                return $b['performance_percentage'] <=> $a['performance_percentage'];
+            }
+            return $b['total_earned_marks'] <=> $a['total_earned_marks'];
+        })->values();
 
         $totalOrgTasks = Task::where('organization_id', $user->organization_id)->count();
-        $totalApprovedTasks = Task::where('organization_id', $user->organization_id)->whereIn('status', ['approved', 'completed'])->count();
-        $totalEarnedAll = (int) Task::where('organization_id', $user->organization_id)->whereIn('status', ['approved', 'completed'])->sum('marks_awarded');
-        $totalPossibleAll = (int) Task::where('organization_id', $user->organization_id)->whereIn('status', ['approved', 'completed'])->sum('maximum_marks');
+        $approvedTasksAll = Task::where('organization_id', $user->organization_id)->whereIn('status', ['approved', 'completed'])->get();
+        $totalApprovedTasks = $approvedTasksAll->count();
+        $totalEarnedAll = (int) $approvedTasksAll->sum(function ($t) {
+            return $t->marks_awarded !== null ? (int)$t->marks_awarded : (int)($t->maximum_marks ?: 100);
+        });
+        $totalPossibleAll = (int) $approvedTasksAll->sum(fn($t) => max(1, $t->maximum_marks ?: 100));
 
         $overallPerformance = $totalPossibleAll > 0
             ? round(($totalEarnedAll / $totalPossibleAll) * 100, 1)

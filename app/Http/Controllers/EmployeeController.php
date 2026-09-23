@@ -229,6 +229,8 @@ class EmployeeController extends Controller
             $employee->makeHidden(['base_salary']);
         }
 
+        $employee->task_performance = \App\Services\TaskPerformanceService::calculateEmployeePerformance($employee);
+
         return response()->json(['employee' => $employee]);
     }
 
