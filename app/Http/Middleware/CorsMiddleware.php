@@ -19,6 +19,8 @@ class CorsMiddleware
         $trustedOrigins = [
             'https://hrms.blueboxx.in',
             'http://hrms.blueboxx.in',
+            'https://hrms-backend.blueboxx.in',
+            'http://hrms-backend.blueboxx.in',
             'https://hrms_backend.blueboxx.in',
             'http://hrms_backend.blueboxx.in',
             'http://localhost:3000',
